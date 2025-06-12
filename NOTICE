@@ -1,11 +1,11 @@
 NOTICE
 
-This project is open source and provided under the Apache 2.0 License.
+This project is fully open source and provided under the Apache 2.0 License. All code in this repository is free to use, modify, and distribute under the terms of that license.
 
-Certain design principles, architectural decisions, and process flows informing this implementation were developed independently by Flores Analytics Consulting L.L.C. as part of prior R&D and product work.
+Flores Analytics Consulting L.L.C. independently developed certain design principles, architectural decisions, and higher-level process flows that inform this tool. These elements were originally created as part of prior research and product development efforts and are not part of this repository.
 
-These elements — including the broader structured thinking framework and long-term context memory orchestration methods — are not included in the scope of this repository and remain proprietary.
+Specifically, this project is not a derivative or component of any commercial product (including Ai4Bi, Ai4Bi Pro), and publishing this repository does not imply open licensing of those products, their architectures, or proprietary methods.
 
-This repo is offered for collaboration, experimentation, and community-driven innovation. For commercial licensing, enterprise integration, or access to the full framework, please contact:
+This tool is shared for community use, experimentation, and collaboration. For inquiries about commercial licensing, enterprise integrations, or the broader system architecture, please contact:
 
 📬 manuel@floresac.info
