@@ -1,0 +1,40 @@
+{
+  "name": "cursor-cortex",
+  "version": "1.0.0",
+  "description": "Knowledge management system integrated with commit tracking",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "cursor-cortex": "./cursor-cortex-cli.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "cli": "node cursor-cortex-cli.js",
+    "test": "node test/test.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0"
+  },
+  "keywords": [
+    "knowledge-management",
+    "tacit-knowledge",
+    "commits",
+    "branch-notes",
+    "jira"
+  ],
+  "cursor": {
+    "mcp": {
+      "command": "node index.js",
+      "displayName": "Cursor-Cortex",
+      "description": "Knowledge management system integrated with commit tracking",
+      "debug": true
+    }
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^9.26.0"
+  }
+}

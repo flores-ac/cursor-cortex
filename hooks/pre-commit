@@ -1,0 +1,10 @@
+#!/bin/sh
+
+# Pre-commit hook that runs ESLint before committing
+echo "Running ESLint check..."
+
+# Run ESLint
+npm run lint
+
+# Return the ESLint exit code
+exit $? 

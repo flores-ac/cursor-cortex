@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# Post-commit hook for Cursor-Cortex
+# Automatically adds a commit separator to branch notes
+
+# Get current branch name
+BRANCH_NAME=$(git branch --show-current)
+
+# Get commit information
+COMMIT_HASH=$(git rev-parse HEAD)
+COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+
+# Get project name (use environment variable if available, otherwise use directory name)
+PROJECT_NAME=${CURSOR_CORTEX_PROJECT:-$(basename $(git rev-parse --show-toplevel))}
+
+# Get branch name (use environment variable if available, otherwise use current branch)
+BRANCH_NAME=${CURSOR_CORTEX_BRANCH:-$BRANCH_NAME}
+
+# Use the CLI tool to add commit separator
+REPO_ROOT=$(git rev-parse --show-toplevel)
+if [ -f "$REPO_ROOT/cursor-cortex-cli.js" ]; then
+  # Use the CLI tool which can handle direct command execution
+  node "$REPO_ROOT/cursor-cortex-cli.js" add_commit_separator --branchName="$BRANCH_NAME" --projectName="$PROJECT_NAME" --commitHash="$COMMIT_HASH" --commitMessage="$COMMIT_MESSAGE"
+else
+  # Fallback to global installation
+  cursor-cortex add_commit_separator --branchName="$BRANCH_NAME" --projectName="$PROJECT_NAME" --commitHash="$COMMIT_HASH" --commitMessage="$COMMIT_MESSAGE"
+fi
+
+echo "Added commit separator to branch note for $BRANCH_NAME" 

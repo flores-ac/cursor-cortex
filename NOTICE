@@ -1,0 +1,11 @@
+NOTICE
+
+This project is open source and provided under the Apache 2.0 License.
+
+Certain design principles, architectural decisions, and process flows informing this implementation were developed independently by Flores Analytics Consulting L.L.C. as part of prior R&D and product work.
+
+These elements — including the broader structured thinking framework and long-term context memory orchestration methods — are not included in the scope of this repository and remain proprietary.
+
+This repo is offered for collaboration, experimentation, and community-driven innovation. For commercial licensing, enterprise integration, or access to the full framework, please contact:
+
+📬 manuel@floresac.info
