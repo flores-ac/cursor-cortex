@@ -252,6 +252,8 @@ Found a bug or have an idea? Open an issue or submit a pull request — contribu
 
 ## 📄 License
 
-This project is licensed under the [Apache 2.0 License](./LICENSE).
+This project is licensed under the [Parachute Public License (PPL) v1.0](./LICENSE).
+
+The PPL is an ethical license that includes restrictions against use by government, military, surveillance, and other harmful entities. For full details and rationale, see [parachute.pub](https://parachute.pub).
 
 © 2025 **Flores Analytics Consulting L.L.C**, Manuel Flores-Ramirez.
