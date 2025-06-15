@@ -2790,12 +2790,17 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         
         // Get branch notes for the project
         const branchNotes = await getBranchNotesForProject(projectName);
+        console.error(`DEBUG: Branch notes length: ${branchNotes.length} chars`);
+        console.error(`DEBUG: Branch notes preview: ${branchNotes.substring(0, 200)}...`);
         
         // Get knowledge documents for the project
-        const knowledgeDocs = includeKnowledge ? await getKnowledgeDocumentsForProject(projectName) : [];
+        const knowledgeDocs = includeKnowledge ? await getKnowledgeDocumentsForProject(projectName) : '';
+        console.error(`DEBUG: Knowledge docs length: ${knowledgeDocs.length} chars`);
+        console.error(`DEBUG: Knowledge docs preview: ${knowledgeDocs.substring(0, 200)}...`);
         
         // Get context information for the project
         const contextInfo = includeContext ? await getContextInfoForProject(projectName) : null;
+        console.error(`DEBUG: Context info:`, contextInfo);
         
         // Construct the narrative
         const narrative = constructProjectNarrative(branchNotes, knowledgeDocs, contextInfo);
@@ -2809,6 +2814,8 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           ],
         };
       } catch (error) {
+        console.error(`Error constructing project narrative: ${error.message}`);
+        console.error(`Stack trace: ${error.stack}`);
         return {
           isError: true,
           content: [
@@ -2847,12 +2854,10 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
 function constructProjectNarrative(branchNotes, knowledgeDocs, contextInfo) {
   try {
     const narrative = {
+      projectSummary: generateProjectSummary(branchNotes, knowledgeDocs, contextInfo),
       timeline: constructTimeline(branchNotes),
       technicalJourney: constructTechnicalJourney(branchNotes, knowledgeDocs),
-      businessValue: extractBusinessValue(branchNotes, knowledgeDocs, contextInfo),
-      keyDecisions: identifyKeyDecisions(branchNotes, knowledgeDocs),
-      productionStory: constructProductionStory(branchNotes, knowledgeDocs),
-      executiveSummary: generateExecutiveSummary(branchNotes, knowledgeDocs, contextInfo)
+      keyDecisions: identifyKeyDecisions(branchNotes, knowledgeDocs)
     };
     
     return formatNarrativeOutput(narrative);
@@ -2862,12 +2867,46 @@ function constructProjectNarrative(branchNotes, knowledgeDocs, contextInfo) {
 }
 
 /**
+ * Generate factual project summary from actual content
+ */
+function generateProjectSummary(branchNotes, knowledgeDocs, contextInfo) {
+  const branchNoteLines = branchNotes.split('\n').length;
+  const branchNoteWords = branchNotes.split(/\s+/).length;
+  const knowledgeDocLines = knowledgeDocs.split('\n').length;
+  const knowledgeDocWords = knowledgeDocs.split(/\s+/).length;
+  
+  // Count actual entries and commits
+  const entries = branchNotes.split('## ').filter(section => 
+    !section.includes('COMMIT:') && section.trim().length > 10
+  ).length;
+  
+  const commits = (branchNotes.match(/COMMIT:/g) || []).length;
+  
+  return {
+    title: contextInfo?.title || 'Technical Project',
+    description: contextInfo?.description || 'No description available',
+    relatedProjects: contextInfo?.rawContent?.match(/## Related Projects\s*\n([\s\S]*?)(?:\n##|$)/)?.[1]
+      ?.split('\n')
+      .filter(line => line.trim().startsWith('-'))
+      .map(line => line.replace(/^-\s*/, '').trim()) || [],
+    contentStats: {
+      branchNoteLines,
+      branchNoteWords,
+      knowledgeDocLines, 
+      knowledgeDocWords,
+      totalEntries: entries,
+      totalCommits: commits
+    }
+  };
+}
+
+/**
  * Constructs chronological timeline from branch notes and commits
  */
 function constructTimeline(branchNotes) {
   const events = [];
   
-  // Extract commit separators with dates
+  // ENHANCED: Extract commit separators with dates - more flexible pattern matching
   const commitPattern = /(?:^|\n)---\n.*?COMMIT:\s*([a-f0-9]{7,})\s*\|\s*(.+?)(?:\n|$)/gm;
   let match;
   
@@ -2881,17 +2920,39 @@ function constructTimeline(branchNotes) {
     });
   }
   
-  // Extract major milestones from headings
+  // ENHANCED: Extract timestamped entries (our format: ## 2025-06-15 20:48:18)
+  const timestampPattern = /^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})$/gm;
+  while ((match = timestampPattern.exec(branchNotes)) !== null) {
+    const timestamp = match[1];
+    events.push({
+      type: 'entry',
+      date: timestamp,
+      significance: 'medium'
+    });
+  }
+  
+  // ENHANCED: Extract major milestones from headings (more inclusive)
   const milestonePattern = /^## (.+?)$/gm;
   while ((match = milestonePattern.exec(branchNotes)) !== null) {
     const milestone = match[1];
-    if (!milestone.includes('COMMIT:') && milestone.length > 3) {
+    if (!milestone.includes('COMMIT:') && !milestone.match(/\d{4}-\d{2}-\d{2}/) && milestone.length > 3) {
       events.push({
         type: 'milestone',
         description: milestone,
         significance: 'medium'
       });
     }
+  }
+  
+  // ENHANCED: Extract phase indicators
+  const phasePattern = /(?:^|\n)(Phase \d+\.?\d*[^:\n]*)/gm;
+  while ((match = phasePattern.exec(branchNotes)) !== null) {
+    const phase = match[1];
+    events.push({
+      type: 'phase',
+      description: phase,
+      significance: 'high'
+    });
   }
   
   // Sort by date where available
@@ -2917,95 +2978,159 @@ function constructTechnicalJourney(branchNotes, knowledgeDocs) {
     architecturalEvolution: [],
     technologyChoices: [],
     problemSolving: [],
-    technicalDebt: []
+    technicalDebt: [],
+    crossReferences: []
   };
-  
-  // Analyze architectural patterns
-  const archPatterns = [
-    'microservices', 'monolith', 'api', 'database', 'cache', 'queue',
-    'docker', 'kubernetes', 'serverless', 'event-driven', 'mcp', 'node.js'
-  ];
   
   const content = branchNotes + '\n' + knowledgeDocs;
   const lowerContent = content.toLowerCase();
   
+  // Enhanced architectural pattern analysis with web exploration
+  const archPatterns = [
+    'microservices', 'monolith', 'api', 'database', 'cache', 'queue',
+    'docker', 'kubernetes', 'serverless', 'event-driven', 'mcp', 'node.js',
+    'react', 'vue', 'angular', 'typescript', 'javascript', 'python', 'java',
+    'mongodb', 'postgres', 'mysql', 'redis', 'elasticsearch', 'kafka'
+  ];
+  
   archPatterns.forEach(pattern => {
     if (lowerContent.includes(pattern)) {
-      const contexts = extractContextAroundKeyword(content, pattern, 100);
+      const contexts = extractContextAroundKeyword(content, pattern, 150);
       if (contexts.length > 0) {
+        // Determine impact based on context richness and connections
+        const impact = contexts.length > 3 ? 'high' : contexts.length > 1 ? 'medium' : 'low';
         journey.architecturalEvolution.push({
           technology: pattern,
           contexts: contexts,
-          impact: 'medium'
+          impact: impact,
+          references: contexts.length
         });
       }
     }
   });
   
-  // Extract problem-solution pairs
-  const problemIndicators = ['issue', 'problem', 'bug', 'error', 'challenge', 'limitation'];
-  const solutionIndicators = ['solved', 'fixed', 'implemented', 'resolved', 'approach', 'solution'];
+  // Enhanced problem-solution web exploration
+  const problemSolutionPairs = extractProblemSolutionPairs(content);
+  journey.problemSolving = problemSolutionPairs;
   
-  problemIndicators.forEach(indicator => {
-    const problems = extractContextAroundKeyword(content, indicator, 150);
-    problems.forEach(problem => {
-      const hasSolution = solutionIndicators.some(sol => 
-        problem.toLowerCase().includes(sol)
-      );
-      if (hasSolution) {
-        journey.problemSolving.push({
-          context: problem,
-          type: 'resolved',
-          significance: 'high'
-        });
-      }
-    });
-  });
+  // Extract cross-references and relationships
+  const crossRefs = extractCrossReferences(content);
+  journey.crossReferences = crossRefs;
+  
+  // Extract technology evolution timeline
+  const techEvolution = extractTechnologyEvolution(content);
+  journey.technologyChoices = techEvolution;
   
   return journey;
 }
 
 /**
- * Extracts business value and impact from technical work
+ * Extract problem-solution pairs with web-like relationship analysis
  */
-function extractBusinessValue(branchNotes, knowledgeDocs, contextInfo) {
-  const businessValue = {
-    objectives: [],
-    impacts: [],
-    stakeholderValue: [],
-    outcomes: []
-  };
+function extractProblemSolutionPairs(content) {
+  const pairs = [];
+  const sections = content.split(/\n## /);
   
-  const content = branchNotes + '\n' + knowledgeDocs;
+  sections.forEach(section => {
+    const problemIndicators = ['issue', 'problem', 'bug', 'error', 'challenge', 'limitation', 'difficulty'];
+    const solutionIndicators = ['solved', 'fixed', 'implemented', 'resolved', 'approach', 'solution', 'workaround'];
+    
+    const hasProblem = problemIndicators.some(indicator => 
+      section.toLowerCase().includes(indicator)
+    );
+    const hasSolution = solutionIndicators.some(indicator => 
+      section.toLowerCase().includes(indicator)
+    );
+    
+    if (hasProblem && hasSolution) {
+      pairs.push({
+        context: section.substring(0, 300) + '...',
+        type: 'resolved',
+        significance: 'high',
+        sectionTitle: section.split('\n')[0]
+      });
+    } else if (hasProblem) {
+      pairs.push({
+        context: section.substring(0, 200) + '...',
+        type: 'identified',
+        significance: 'medium',
+        sectionTitle: section.split('\n')[0]
+      });
+    }
+  });
   
-  // Extract objectives from context or requirements
-  if (contextInfo && contextInfo.description) {
-    businessValue.objectives.push({
-      description: contextInfo.description,
-      source: 'context',
-      confidence: 'high'
-    });
-  }
+  return pairs;
+}
+
+/**
+ * Extract cross-references and relationship patterns
+ */
+function extractCrossReferences(content) {
+  const refs = [];
   
-  // Look for business impact keywords
-  const impactKeywords = [
-    'efficiency', 'performance', 'scalability', 'reliability', 'security',
-    'user experience', 'cost reduction', 'automation', 'productivity'
+  // Look for explicit cross-references
+  const refPatterns = [
+    /see also (.+?)(?:\.|$|,)/gi,
+    /related to (.+?)(?:\.|$|,)/gi,
+    /builds on (.+?)(?:\.|$|,)/gi,
+    /extends (.+?)(?:\.|$|,)/gi,
+    /depends on (.+?)(?:\.|$|,)/gi
   ];
   
-  impactKeywords.forEach(keyword => {
-    const contexts = extractContextAroundKeyword(content, keyword, 100);
+  refPatterns.forEach(pattern => {
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+      refs.push({
+        type: 'explicit',
+        reference: match[1].trim(),
+        context: match[0]
+      });
+    }
+  });
+  
+  // Look for implicit connections (shared keywords in different sections)
+  const sections = content.split(/\n## /);
+  const keywords = ['implementation', 'testing', 'deployment', 'architecture', 'design'];
+  
+  keywords.forEach(keyword => {
+    const sectionsWithKeyword = sections.filter(section => 
+      section.toLowerCase().includes(keyword)
+    ).length;
+    
+    if (sectionsWithKeyword > 1) {
+      refs.push({
+        type: 'implicit',
+        keyword: keyword,
+        connections: sectionsWithKeyword
+      });
+    }
+  });
+  
+  return refs;
+}
+
+/**
+ * Extract technology evolution and choices timeline
+ */
+function extractTechnologyEvolution(content) {
+  const evolution = [];
+  const techKeywords = ['chose', 'selected', 'decided', 'switched', 'migrated', 'adopted'];
+  
+  techKeywords.forEach(keyword => {
+    const contexts = extractContextAroundKeyword(content, keyword, 120);
     contexts.forEach(context => {
-      businessValue.impacts.push({
-        type: keyword,
-        description: context,
+      evolution.push({
+        decision: context,
+        type: 'technology_choice',
         confidence: 'medium'
       });
     });
   });
   
-  return businessValue;
+  return evolution;
 }
+
+
 
 /**
  * Identifies and contextualizes key technical decisions
@@ -3038,252 +3163,163 @@ function identifyKeyDecisions(branchNotes, knowledgeDocs) {
   return decisions;
 }
 
-/**
- * Constructs the production deployment story
- */
-function constructProductionStory(branchNotes, knowledgeDocs) {
-  const story = {
-    readiness: 'unknown',
-    deploymentPath: [],
-    prerequisites: [],
-    risks: [],
-    successCriteria: []
-  };
-  
-  const content = branchNotes + '\n' + knowledgeDocs;
-  
-  // Assess production readiness signals
-  const productionSignals = [
-    'deployed', 'production', 'live', 'released', 'shipping',
-    'testing', 'qa', 'staging', 'integration'
-  ];
-  
-  const readinessScore = productionSignals.reduce((score, signal) => {
-    return score + (content.toLowerCase().includes(signal) ? 1 : 0);
-  }, 0);
-  
-  if (readinessScore >= 4) story.readiness = 'high';
-  else if (readinessScore >= 2) story.readiness = 'medium';
-  else story.readiness = 'low';
-  
-  // Extract deployment-related information
-  const deploymentKeywords = ['deploy', 'release', 'launch', 'rollout'];
-  deploymentKeywords.forEach(keyword => {
-    const contexts = extractContextAroundKeyword(content, keyword, 100);
-    story.deploymentPath.push(...contexts.map(ctx => ({
-      step: ctx,
-      keyword: keyword
-    })));
-  });
-  
-  return story;
-}
+
+
+
+
+
 
 /**
- * Generates executive summary suitable for stakeholders
- */
-function generateExecutiveSummary(branchNotes, knowledgeDocs, contextInfo) {
-  const wordCount = (branchNotes + knowledgeDocs).split(/\s+/).length;
-  const complexity = wordCount > 5000 ? 'high' : wordCount > 1000 ? 'medium' : 'low';
-  
-  const summary = {
-    projectOverview: contextInfo?.title || 'Technical Implementation Project',
-    keyAchievements: [],
-    businessImpact: [],
-    technicalHighlights: [],
-    nextSteps: [],
-    complexity: complexity,
-    documentationHealth: wordCount > 500 ? 'good' : 'needs attention'
-  };
-  
-  // Extract key achievements from commits and milestones
-  const commitPattern = /COMMIT:\s*[a-f0-9]{7,}\s*\|\s*(.+?)$/gm;
-  let match;
-  while ((match = commitPattern.exec(branchNotes)) !== null) {
-    const achievement = match[1].trim();
-    if (!summary.keyAchievements.includes(achievement) && achievement.length > 5) {
-      summary.keyAchievements.push(achievement);
-    }
-  }
-  
-  return summary;
-}
-
-/**
- * Helper function to extract context around keywords
+ * Extracts relevant context around keywords for analysis
  */
 function extractContextAroundKeyword(content, keyword, contextLength = 100) {
   const contexts = [];
-  const lines = content.split('\n');
+  const regex = new RegExp(`(.{0,${contextLength}}\\b${keyword}\\b.{0,${contextLength}})`, 'gi');
+  let match;
   
-  lines.forEach((line, index) => {
-    if (line.toLowerCase().includes(keyword.toLowerCase())) {
-      const start = Math.max(0, index - 1);
-      const end = Math.min(lines.length, index + 2);
-      const context = lines.slice(start, end).join(' ').trim();
-      
-      if (context.length > 10 && context.length <= contextLength * 2) {
-        contexts.push(context);
-      }
+  while ((match = regex.exec(content)) !== null) {
+    const context = match[1].trim();
+    if (context.length > keyword.length + 10) { // Ensure meaningful context
+      contexts.push(context);
     }
-  });
+  }
   
-  return contexts;
+  return contexts.slice(0, 3); // Limit to most relevant matches
 }
 
 /**
- * Formats narrative output into readable structure
+ * Formats narrative components into readable output
  */
 function formatNarrativeOutput(narrative) {
-  let output = '# 📖 Project Narrative Construction\n\n';
+  let output = '# 📖 Project Narrative - Knowledge Archaeology Report\n\n';
   
-  // Executive Summary
-  output += '## 🎯 Executive Summary\n\n';
-  output += `**Project**: ${narrative.executiveSummary.projectOverview}\n`;
-  output += `**Complexity**: ${narrative.executiveSummary.complexity}\n`;
-  output += `**Documentation Health**: ${narrative.executiveSummary.documentationHealth}\n\n`;
-  
-  if (narrative.executiveSummary.keyAchievements.length > 0) {
-    output += '**Key Achievements**:\n';
-    narrative.executiveSummary.keyAchievements.slice(0, 5).forEach(achievement => {
-      output += `- ${achievement}\n`;
-    });
-    output += '\n';
+  // Project Summary
+  if (narrative.projectSummary) {
+    output += '## 📊 Project Summary\n\n';
+    output += `**Title:** ${narrative.projectSummary.title}\n`;
+    output += `**Description:** ${narrative.projectSummary.description}\n\n`;
+    
+    if (narrative.projectSummary.relatedProjects.length > 0) {
+      output += '**Related Projects:**\n';
+      narrative.projectSummary.relatedProjects.forEach(project => {
+        output += `- ${project}\n`;
+      });
+      output += '\n';
+    }
+    
+    output += '**Content Statistics:**\n';
+    const stats = narrative.projectSummary.contentStats;
+    output += `- Branch Notes: ${stats.totalEntries} entries, ${stats.branchNoteLines} lines, ${stats.branchNoteWords} words\n`;
+    output += `- Knowledge Docs: ${stats.knowledgeDocLines} lines, ${stats.knowledgeDocWords} words\n`;
+    output += `- Commits Tracked: ${stats.totalCommits}\n\n`;
   }
   
   // Timeline
-  if (narrative.timeline.length > 0) {
-    output += '## ⏱️ Project Timeline\n\n';
+  if (narrative.timeline && narrative.timeline.length > 0) {
+    output += '## ⏰ Project Timeline\n\n';
     narrative.timeline.forEach(event => {
       if (event.type === 'commit') {
-        output += `- **${event.date}**: Commit ${event.hash}\n`;
-      } else {
-        output += `- **Milestone**: ${event.description}\n`;
+        output += `- **${event.date}** - Commit ${event.hash}\n`;
+      } else if (event.type === 'milestone') {
+        output += `- **Milestone:** ${event.description}\n`;
+      } else if (event.type === 'phase') {
+        output += `- **${event.description}**\n`;
       }
     });
     output += '\n';
   }
   
   // Technical Journey
-  output += '## 🛠️ Technical Journey\n\n';
-  if (narrative.technicalJourney.architecturalEvolution.length > 0) {
-    output += '**Architecture & Technology**:\n';
-    narrative.technicalJourney.architecturalEvolution.forEach(tech => {
-      output += `- **${tech.technology}**: Used in project context\n`;
-    });
-    output += '\n';
+  if (narrative.technicalJourney) {
+    output += '## 🛠️ Technical Stack & Evolution\n\n';
+    
+    if (narrative.technicalJourney.architecturalEvolution.length > 0) {
+      output += '### Technologies Used\n';
+      narrative.technicalJourney.architecturalEvolution
+        .sort((a, b) => b.references - a.references)
+        .slice(0, 10)
+        .forEach(tech => {
+          output += `- **${tech.technology}**: ${tech.references} references\n`;
+        });
+      output += '\n';
+    }
+    
+    if (narrative.technicalJourney.problemSolving.length > 0) {
+      output += '### Problem-Solution Patterns\n';
+      narrative.technicalJourney.problemSolving.slice(0, 3).forEach(problem => {
+        output += `- ${problem.context.substring(0, 150)}...\n`;
+      });
+      output += '\n';
+    }
   }
-  
-  if (narrative.technicalJourney.problemSolving.length > 0) {
-    output += '**Problem Solving Highlights**:\n';
-    narrative.technicalJourney.problemSolving.slice(0, 3).forEach(problem => {
-      output += `- ${problem.context.substring(0, 150)}...\n`;
-    });
-    output += '\n';
-  }
-  
-  // Business Value
-  if (narrative.businessValue.impacts.length > 0) {
-    output += '## 💼 Business Value\n\n';
-    narrative.businessValue.impacts.slice(0, 5).forEach(impact => {
-      output += `- **${impact.type}**: ${impact.description.substring(0, 100)}...\n`;
-    });
-    output += '\n';
-  }
-  
-  // Production Story
-  output += '## 🚀 Production Readiness\n\n';
-  output += `**Status**: ${narrative.productionStory.readiness} readiness\n`;
-  if (narrative.productionStory.deploymentPath.length > 0) {
-    output += '**Deployment Context**:\n';
-    narrative.productionStory.deploymentPath.slice(0, 3).forEach(step => {
-      output += `- ${step.step.substring(0, 100)}...\n`;
-    });
-  }
-  output += '\n';
   
   // Key Decisions
-  if (narrative.keyDecisions.length > 0) {
-    output += '## 🎯 Key Technical Decisions\n\n';
+  if (narrative.keyDecisions && narrative.keyDecisions.length > 0) {
+    output += '## 🔑 Key Technical Decisions\n\n';
     narrative.keyDecisions.slice(0, 5).forEach(decision => {
-      output += `- **Decision**: ${decision.decision}\n`;
-      if (decision.reasoning !== 'Not explicitly stated') {
-        output += `  - **Reasoning**: ${decision.reasoning}\n`;
+      output += `- **Decision:** ${decision.decision}\n`;
+      if (decision.reasoning && decision.reasoning !== 'Not explicitly stated') {
+        output += `  - **Reasoning:** ${decision.reasoning}\n`;
       }
     });
     output += '\n';
   }
   
   output += '---\n\n';
-  output += '💡 **Generated by Knowledge Archaeology & Reality Sync Engine v1.0**\n';
+  output += '💡 **Generated by Cursor-Cortex Knowledge Archaeology Engine**\n';
+  output += '*This narrative organizes scattered documentation into a coherent overview.*\n';
   
   return output;
 }
 
-/**
- * Helper functions for narrative construction data gathering
- */
 async function getBranchNotesForProject(projectName) {
-  try {
-    const storageRoot = getStorageRoot();
-    const branchNotesDir = path.join(storageRoot, 'branch_notes', projectName);
-    
-    let allBranchNotes = '';
-    
-    try {
-      const branchFiles = await fs.readdir(branchNotesDir);
-      
-      for (const branchFile of branchFiles) {
-        if (branchFile.endsWith('.md')) {
-          const branchPath = path.join(branchNotesDir, branchFile);
-          const content = await fs.readFile(branchPath, 'utf-8');
-          allBranchNotes += `\n\n=== BRANCH: ${branchFile.replace('.md', '')} ===\n\n`;
-          allBranchNotes += content;
-        }
-      }
-    } catch (error) {
-      console.error(`No branch notes found for project ${projectName}: ${error.message}`);
+  const storageRoot = path.join(os.homedir(), '.cursor-cortex');
+  const branchNotesDir = path.join(storageRoot, 'branch_notes', projectName);
+  
+  let allBranchNotes = '';
+  
+  const branchFiles = await fs.readdir(branchNotesDir);
+  
+  for (const branchFile of branchFiles) {
+    if (branchFile.endsWith('.md')) {
+      const branchPath = path.join(branchNotesDir, branchFile);
+      const content = await fs.readFile(branchPath, 'utf-8');
+      allBranchNotes += `\n\n=== BRANCH: ${branchFile.replace('.md', '')} ===\n\n`;
+      allBranchNotes += content;
     }
-    
-    return allBranchNotes;
-  } catch (error) {
-    console.error(`Error getting branch notes for ${projectName}: ${error.message}`);
-    return '';
   }
+  
+  return allBranchNotes;
 }
 
 async function getKnowledgeDocumentsForProject(projectName) {
+  const storageRoot = path.join(os.homedir(), '.cursor-cortex');
+  const knowledgeDir = path.join(storageRoot, 'knowledge', projectName);
+  
+  let allKnowledgeDocs = '';
+  
   try {
-    const storageRoot = getStorageRoot();
-    const knowledgeDir = path.join(storageRoot, 'knowledge', projectName);
+    const knowledgeFiles = await fs.readdir(knowledgeDir);
     
-    let allKnowledgeDocs = '';
-    
-    try {
-      const knowledgeFiles = await fs.readdir(knowledgeDir);
-      
-      for (const knowledgeFile of knowledgeFiles) {
-        if (knowledgeFile.endsWith('.md')) {
-          const knowledgePath = path.join(knowledgeDir, knowledgeFile);
-          const content = await fs.readFile(knowledgePath, 'utf-8');
-          allKnowledgeDocs += `\n\n=== KNOWLEDGE: ${knowledgeFile.replace('.md', '')} ===\n\n`;
-          allKnowledgeDocs += content;
-        }
+    for (const knowledgeFile of knowledgeFiles) {
+      if (knowledgeFile.endsWith('.md')) {
+        const knowledgePath = path.join(knowledgeDir, knowledgeFile);
+        const content = await fs.readFile(knowledgePath, 'utf-8');
+        allKnowledgeDocs += `\n\n=== KNOWLEDGE: ${knowledgeFile.replace('.md', '')} ===\n\n`;
+        allKnowledgeDocs += content;
       }
-    } catch (error) {
-      console.error(`No knowledge documents found for project ${projectName}: ${error.message}`);
     }
-    
-    return allKnowledgeDocs;
   } catch (error) {
-    console.error(`Error getting knowledge documents for ${projectName}: ${error.message}`);
-    return '';
+    console.error(`No knowledge documents found for project ${projectName}: ${error.message}`);
+    // Return empty string instead of throwing for knowledge docs (they're optional)
   }
+  
+  return allKnowledgeDocs;
 }
 
 async function getContextInfoForProject(projectName) {
   try {
-    const storageRoot = getStorageRoot();
+    const storageRoot = path.join(os.homedir(), '.cursor-cortex');
     const contextDir = path.join(storageRoot, 'context', projectName);
     
     try {
