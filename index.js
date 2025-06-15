@@ -341,6 +341,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['projectName'],
         },
       },
+      {
+        name: 'timeline_reconstruction',
+        description: 'Phase 2.2: Timeline Reconstruction Tool - Extracts chronological timeline data from branch notes and commit separators for reality sync analysis',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectName: { type: 'string', description: 'Name of the project to analyze (optional - if not provided, analyzes all projects)' },
+            branchName: { type: 'string', description: 'Specific branch to analyze (optional - if not provided, analyzes all branches)' },
+            dateRange: { type: 'string', description: 'Date range filter in format "YYYY-MM-DD,YYYY-MM-DD" (optional)' },
+            includeCommits: { type: 'boolean', description: 'Include commit separators in timeline (default: true)' },
+            includeEntries: { type: 'boolean', description: 'Include branch note entries in timeline (default: true)' },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'context_sync_guidance',
+        description: 'Provides contextual guidance for syncing project contexts based on timeline data and sync type',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            syncType: { type: 'string', description: 'Type of sync: "new-branch", "stage", "main", or "general"' },
+            projectName: { type: 'string', description: 'Name of the project' },
+            branchName: { type: 'string', description: 'Name of the branch (optional, used for branch-specific guidance)' },
+            timelineData: { type: 'string', description: 'Timeline data from timeline_reconstruction tool (optional)' },
+          },
+          required: ['syncType', 'projectName'],
+        },
+      },
     ],
   };
 });
@@ -2826,6 +2855,68 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           ],
         };
       }
+    } else if (name === 'timeline_reconstruction') {
+      try {
+        const { 
+          projectName, 
+          branchName, 
+          dateRange, 
+          includeCommits = true, 
+          includeEntries = true 
+        } = toolArgs;
+        
+        console.error(`Timeline reconstruction for project: ${projectName || 'ALL'}, branch: ${branchName || 'ALL'}`);
+        
+        const timeline = await reconstructTimeline(projectName, branchName, dateRange, includeCommits, includeEntries);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: timeline,
+            },
+          ],
+        };
+      } catch (error) {
+        console.error(`Error reconstructing timeline: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error reconstructing timeline: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'context_sync_guidance') {
+      try {
+        const { syncType, projectName, branchName, timelineData } = toolArgs;
+        
+        console.error(`Context sync guidance for type: ${syncType}, project: ${projectName}`);
+        
+        const guidance = await generateContextSyncGuidance(syncType, projectName, branchName, timelineData);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: guidance,
+            },
+          ],
+        };
+      } catch (error) {
+        console.error(`Error generating context sync guidance: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error generating context sync guidance: ${error.message}`,
+            },
+          ],
+        };
+      }
     }
 
     throw new Error(`Tool not found: ${name}`);
@@ -3355,6 +3446,460 @@ async function getContextInfoForProject(projectName) {
     console.error(`Error getting context info for ${projectName}: ${error.message}`);
     return null;
   }
+}
+
+// =============================================================================
+// TIMELINE RECONSTRUCTION TOOL (Phase 2.2)
+// Knowledge Archaeology & Reality Sync Engine
+// =============================================================================
+
+/**
+ * Reconstructs chronological timeline from branch notes and commit separators
+ * Pure data extraction - no interpretation, just facts
+ */
+async function reconstructTimeline(projectName, branchName, dateRange, includeCommits, includeEntries) {
+  const storageRoot = path.join(os.homedir(), '.cursor-cortex');
+  const timelineEvents = [];
+  
+  // Parse date range if provided (format: "YYYY-MM-DD,YYYY-MM-DD")
+  let startDate = null;
+  let endDate = null;
+  if (dateRange) {
+    const [start, end] = dateRange.split(',');
+    startDate = start ? new Date(start) : null;
+    endDate = end ? new Date(end) : null;
+  }
+  
+  // Helper function to check if date is in range
+  const isInDateRange = (dateStr) => {
+    if (!startDate && !endDate) return true; // No range = all time
+    const eventDate = new Date(dateStr);
+    if (isNaN(eventDate)) return true; // Invalid date = include it
+    
+    if (startDate && eventDate < startDate) return false;
+    if (endDate && eventDate > endDate) return false;
+    return true;
+  };
+  
+  // Get projects to analyze
+  const projectsToAnalyze = projectName ? [projectName] : await getAllProjectsFromBranchNotes();
+  
+  for (const proj of projectsToAnalyze) {
+    const branchNotesDir = path.join(storageRoot, 'branch_notes', proj);
+    
+    try {
+      const branchFiles = await fs.readdir(branchNotesDir);
+      
+      for (const branchFile of branchFiles) {
+        if (!branchFile.endsWith('.md')) continue;
+        
+        const currentBranch = branchFile.replace('.md', '');
+        
+        // Skip if specific branch requested and this isn't it
+        if (branchName && currentBranch !== branchName) continue;
+        
+        const branchPath = path.join(branchNotesDir, branchFile);
+        const content = await fs.readFile(branchPath, 'utf-8');
+        
+        // Extract commit separators
+        if (includeCommits) {
+          const commitPattern = /---\s*\n\s*## COMMIT:\s*([a-f0-9]{7,})\s*\|\s*(.+?)\s*\n\*\*Full Hash:\*\*\s*([a-f0-9]+)\s*\n\*\*Message:\*\*\s*(.+?)\s*\n/g;
+          let match;
+          
+          while ((match = commitPattern.exec(content)) !== null) {
+            const [, shortHash, timestamp, fullHash, message] = match;
+            
+            if (isInDateRange(timestamp)) {
+              timelineEvents.push({
+                type: 'commit',
+                project: proj,
+                branch: currentBranch,
+                timestamp: timestamp.trim(),
+                shortHash: shortHash.trim(),
+                fullHash: fullHash.trim(),
+                message: message.trim(),
+                significance: 'high'
+              });
+            }
+          }
+        }
+        
+        // Extract timestamped entries
+        if (includeEntries) {
+          const lines = content.split('\n');
+          let currentTimestamp = null;
+          let currentEntry = '';
+          
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            
+            // Check for timestamp headers (## YYYY-MM-DD HH:MM:SS)
+            const timestampMatch = line.match(/^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})$/);
+            if (timestampMatch) {
+              // Save previous entry if exists
+              if (currentTimestamp && currentEntry.trim() && isInDateRange(currentTimestamp)) {
+                timelineEvents.push({
+                  type: 'entry',
+                  project: proj,
+                  branch: currentBranch,
+                  timestamp: currentTimestamp,
+                  content: currentEntry.trim(),
+                  significance: 'medium'
+                });
+              }
+              
+              currentTimestamp = timestampMatch[1];
+              currentEntry = '';
+              continue;
+            }
+            
+            // Check for other section headers (reset entry)
+            if (line.startsWith('## ') && !timestampMatch) {
+              // Save previous entry if exists
+              if (currentTimestamp && currentEntry.trim() && isInDateRange(currentTimestamp)) {
+                timelineEvents.push({
+                  type: 'entry',
+                  project: proj,
+                  branch: currentBranch,
+                  timestamp: currentTimestamp,
+                  content: currentEntry.trim(),
+                  significance: 'medium'
+                });
+              }
+              currentTimestamp = null;
+              currentEntry = '';
+              continue;
+            }
+            
+            // Accumulate content for current entry
+            if (currentTimestamp) {
+              currentEntry += line + '\n';
+            }
+          }
+          
+          // Don't forget the last entry
+          if (currentTimestamp && currentEntry.trim() && isInDateRange(currentTimestamp)) {
+            timelineEvents.push({
+              type: 'entry',
+              project: proj,
+              branch: currentBranch,
+              timestamp: currentTimestamp,
+              content: currentEntry.trim(),
+              significance: 'medium'
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error reading branch notes for project ${proj}: ${error.message}`);
+    }
+  }
+  
+  // Sort chronologically
+  timelineEvents.sort((a, b) => {
+    const dateA = new Date(a.timestamp);
+    const dateB = new Date(b.timestamp);
+    if (isNaN(dateA) && isNaN(dateB)) return 0;
+    if (isNaN(dateA)) return 1;
+    if (isNaN(dateB)) return -1;
+    return dateA - dateB;
+  });
+  
+  return formatTimelineOutput(timelineEvents, projectsToAnalyze, dateRange);
+}
+
+/**
+ * Get all projects that have branch notes
+ */
+async function getAllProjectsFromBranchNotes() {
+  const storageRoot = path.join(os.homedir(), '.cursor-cortex');
+  const branchNotesRoot = path.join(storageRoot, 'branch_notes');
+  
+  try {
+    const projects = await fs.readdir(branchNotesRoot);
+    return projects.filter(async (proj) => {
+      const projPath = path.join(branchNotesRoot, proj);
+      const stat = await fs.stat(projPath);
+      return stat.isDirectory();
+    });
+  } catch (error) {
+    console.error(`Error reading branch notes directory: ${error.message}`);
+    return [];
+  }
+}
+
+/**
+ * Format timeline output for display
+ */
+function formatTimelineOutput(events, projects, dateRange) {
+  let output = '# 📅 Timeline Reconstruction Report\n\n';
+  
+  // Summary
+  output += '## Summary\n\n';
+  output += `**Projects Analyzed:** ${projects.join(', ')}\n`;
+  output += `**Date Range:** ${dateRange || 'All time'}\n`;
+  output += `**Total Events:** ${events.length}\n`;
+  output += `**Commits:** ${events.filter(e => e.type === 'commit').length}\n`;
+  output += `**Entries:** ${events.filter(e => e.type === 'entry').length}\n\n`;
+  
+  if (events.length === 0) {
+    output += '⚠️ No timeline events found matching the criteria.\n\n';
+    return output;
+  }
+  
+  // Group by date
+  const eventsByDate = {};
+  events.forEach(event => {
+    const date = event.timestamp.split(' ')[0]; // Get just the date part
+    if (!eventsByDate[date]) {
+      eventsByDate[date] = [];
+    }
+    eventsByDate[date].push(event);
+  });
+  
+  output += '## Chronological Timeline\n\n';
+  
+  Object.keys(eventsByDate).sort().forEach(date => {
+    output += `### ${date}\n\n`;
+    
+    eventsByDate[date].forEach(event => {
+      const time = event.timestamp.split(' ')[1] || '';
+      const projectBranch = `${event.project}/${event.branch}`;
+      
+      if (event.type === 'commit') {
+        output += `**${time}** 🔄 **COMMIT** [${projectBranch}]\n`;
+        output += `- Hash: \`${event.shortHash}\`\n`;
+        output += `- Message: ${event.message}\n\n`;
+      } else if (event.type === 'entry') {
+        output += `**${time}** 📝 **ENTRY** [${projectBranch}]\n`;
+        const preview = event.content.substring(0, 200).replace(/\n/g, ' ');
+        output += `- ${preview}${event.content.length > 200 ? '...' : ''}\n\n`;
+      }
+    });
+  });
+  
+  output += '---\n\n';
+  output += '💡 **Generated by Cursor-Cortex Timeline Reconstruction Tool**\n';
+  output += '*Pure chronological data extraction from branch notes and commit separators.*\n';
+  
+  return output;
+}
+
+/**
+ * Generate contextual guidance for syncing project contexts
+ */
+async function generateContextSyncGuidance(syncType, projectName, branchName, timelineData) {
+  let output = `# 🔄 Context Sync Guidance\n\n`;
+  output += `**Sync Type:** ${syncType}\n`;
+  output += `**Project:** ${projectName}\n`;
+  output += `**Branch:** ${branchName || 'Not specified'}\n\n`;
+  
+  // Get current context and branch note status
+  const storageRoot = path.join(os.homedir(), '.cursor-cortex');
+  
+  switch (syncType) {
+    case 'new-branch':
+      output += await generateNewBranchGuidance(projectName, branchName, storageRoot);
+      break;
+    case 'stage':
+      output += await generateStageGuidance(projectName, storageRoot);
+      break;
+    case 'main':
+      output += await generateMainGuidance(projectName, storageRoot);
+      break;
+    case 'general':
+      output += await generateGeneralGuidance(projectName, storageRoot);
+      break;
+    default:
+      output += `❌ Unknown sync type: ${syncType}\n`;
+      output += `Valid types: new-branch, stage, main, general\n`;
+  }
+  
+  output += '\n---\n\n';
+  output += '💡 **Generated by Cursor-Cortex Context Sync Guidance**\n';
+  output += '*Intelligent guidance based on actual project state and timeline analysis.*\n';
+  
+  return output;
+}
+
+async function generateNewBranchGuidance(projectName, branchName, storageRoot) {
+  let guidance = '## 🌱 New Branch Context Sync\n\n';
+  
+  // Check if main context exists
+  const mainContextPath = path.join(storageRoot, 'context', projectName, 'main.md');
+  let hasMainContext = false;
+  
+  try {
+    await fs.access(mainContextPath);
+    hasMainContext = true;
+  } catch (error) {
+    // Main context doesn't exist
+  }
+  
+  if (hasMainContext) {
+    guidance += '✅ **Main context found** - Can use as template\n\n';
+    guidance += '### Recommended Actions:\n';
+    guidance += `1. Copy main context as starting point for ${branchName}\n`;
+    guidance += `2. Update title and description for new feature/branch\n`;
+    guidance += `3. Clear or update objectives for this branch\n`;
+    guidance += `4. Add any branch-specific requirements\n\n`;
+  } else {
+    guidance += '⚠️ **No main context found** - Creating from scratch\n\n';
+    guidance += '### Recommended Actions:\n';
+    guidance += `1. Create new context file for ${branchName}\n`;
+    guidance += `2. Define project title and description\n`;
+    guidance += `3. Set objectives for this branch\n`;
+    guidance += `4. Document any known requirements\n\n`;
+  }
+  
+  guidance += '### Context Template:\n';
+  guidance += '```markdown\n';
+  guidance += `# ${projectName} - ${branchName}\n\n`;
+  guidance += '## Description\n\n';
+  guidance += '[Describe what this branch/feature accomplishes]\n\n';
+  guidance += '## Objectives\n\n';
+  guidance += '- [Primary objective]\n';
+  guidance += '- [Secondary objective]\n\n';
+  guidance += '## Requirements\n\n';
+  guidance += '- [Key requirement]\n';
+  guidance += '- [Another requirement]\n\n';
+  guidance += '## Related Projects\n\n';
+  guidance += '- [Related project if any]\n';
+  guidance += '```\n\n';
+  
+  return guidance;
+}
+
+async function generateStageGuidance(projectName, storageRoot) {
+  let guidance = '## 🚀 Stage Context Sync\n\n';
+  
+  // Check for completed work in main branch
+  const mainBranchPath = path.join(storageRoot, 'branch_notes', projectName, 'main.md');
+  
+  try {
+    const mainContent = await fs.readFile(mainBranchPath, 'utf-8');
+    const commits = (mainContent.match(/COMMIT:/g) || []).length;
+    const entries = mainContent.split('## ').filter(section => 
+      !section.includes('COMMIT:') && section.trim().length > 10
+    ).length;
+    
+    guidance += `📊 **Main branch status:** ${entries} entries, ${commits} commits\n\n`;
+    
+    if (commits > 0) {
+      guidance += '### Recommended Actions:\n';
+      guidance += '1. Review completed work in main branch\n';
+      guidance += '2. Update stage context with production-ready features\n';
+      guidance += '3. Document any deployment considerations\n';
+      guidance += '4. Update version/release notes if applicable\n\n';
+    } else {
+      guidance += '⚠️ **No commits found** - May be too early for stage sync\n\n';
+    }
+  } catch (error) {
+    guidance += '❌ **No main branch notes found**\n\n';
+  }
+  
+  return guidance;
+}
+
+async function generateMainGuidance(projectName, storageRoot) {
+  let guidance = '## 🎯 Main Context Sync\n\n';
+  
+  // Check for work across all branches
+  const branchNotesDir = path.join(storageRoot, 'branch_notes', projectName);
+  
+  try {
+    const branchFiles = await fs.readdir(branchNotesDir);
+    const branches = branchFiles.filter(f => f.endsWith('.md')).map(f => f.replace('.md', ''));
+    
+    guidance += `📊 **Active branches:** ${branches.join(', ')}\n\n`;
+    
+    guidance += '### Recommended Actions:\n';
+    guidance += '1. Review work across all branches\n';
+    guidance += '2. Update main context with completed features\n';
+    guidance += '3. Consolidate learnings and decisions\n';
+    guidance += '4. Update project objectives based on progress\n\n';
+    
+    // Check for feature branches that might be ready to merge
+    for (const branch of branches) {
+      if (branch !== 'main' && branch !== 'stage') {
+        const branchPath = path.join(branchNotesDir, `${branch}.md`);
+        const content = await fs.readFile(branchPath, 'utf-8');
+        const commits = (content.match(/COMMIT:/g) || []).length;
+        
+        if (commits > 0) {
+          guidance += `🔄 **${branch}** has ${commits} commits - consider merging\n`;
+        }
+      }
+    }
+    guidance += '\n';
+    
+  } catch (error) {
+    guidance += '❌ **No branch notes directory found**\n\n';
+  }
+  
+  return guidance;
+}
+
+async function generateGeneralGuidance(projectName, storageRoot) {
+  let guidance = '## 🔍 General Context Sync\n\n';
+  
+  // Analyze overall project health
+  const contextDir = path.join(storageRoot, 'context', projectName);
+  const branchNotesDir = path.join(storageRoot, 'branch_notes', projectName);
+  const knowledgeDir = path.join(storageRoot, 'knowledge', projectName);
+  
+  let contextFiles = 0;
+  let branchFiles = 0;
+  let knowledgeFiles = 0;
+  
+  try {
+    const contexts = await fs.readdir(contextDir);
+    contextFiles = contexts.filter(f => f.endsWith('.md')).length;
+  } catch (error) {
+    // No context files
+  }
+  
+  try {
+    const branches = await fs.readdir(branchNotesDir);
+    branchFiles = branches.filter(f => f.endsWith('.md')).length;
+  } catch (error) {
+    // No branch files
+  }
+  
+  try {
+    const knowledge = await fs.readdir(knowledgeDir);
+    knowledgeFiles = knowledge.filter(f => f.endsWith('.md')).length;
+  } catch (error) {
+    // No knowledge files
+  }
+  
+  guidance += `📊 **Project Documentation Status:**\n`;
+  guidance += `- Context files: ${contextFiles}\n`;
+  guidance += `- Branch notes: ${branchFiles}\n`;
+  guidance += `- Knowledge docs: ${knowledgeFiles}\n\n`;
+  
+  guidance += '### Recommended Actions:\n';
+  
+  if (contextFiles === 0) {
+    guidance += '🔴 **Priority:** Create project context files\n';
+  }
+  
+  if (branchFiles === 0) {
+    guidance += '🔴 **Priority:** Start documenting work in branch notes\n';
+  }
+  
+  if (knowledgeFiles === 0) {
+    guidance += '🟡 **Suggestion:** Document key learnings in knowledge base\n';
+  }
+  
+  if (contextFiles > 0 && branchFiles > 0) {
+    guidance += '✅ **Good:** Regular sync between contexts and branch notes\n';
+    guidance += '✅ **Good:** Archive completed work periodically\n';
+  }
+  
+  guidance += '\n';
+  
+  return guidance;
 }
 
 // Start the server
