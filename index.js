@@ -3496,7 +3496,9 @@ async function reconstructTimeline(projectName, branchName, dateRange, includeCo
         const currentBranch = branchFile.replace('.md', '');
         
         // Skip if specific branch requested and this isn't it
-        if (branchName && currentBranch !== branchName) continue;
+        // Convert branchName to safe filename format for comparison
+        const safeBranchName = branchName ? branchName.replace(/[^a-zA-Z0-9-_]/g, '_') : null;
+        if (safeBranchName && currentBranch !== safeBranchName) continue;
         
         const branchPath = path.join(branchNotesDir, branchFile);
         const content = await fs.readFile(branchPath, 'utf-8');
@@ -3534,7 +3536,7 @@ async function reconstructTimeline(projectName, branchName, dateRange, includeCo
             const line = lines[i];
             
             // Check for timestamp headers (## YYYY-MM-DD HH:MM:SS)
-            const timestampMatch = line.match(/^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})$/);
+            const timestampMatch = line.match(/^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
             if (timestampMatch) {
               // Save previous entry if exists
               if (currentTimestamp && currentEntry.trim() && isInDateRange(currentTimestamp)) {
@@ -3553,8 +3555,8 @@ async function reconstructTimeline(projectName, branchName, dateRange, includeCo
               continue;
             }
             
-            // Check for other section headers (reset entry)
-            if (line.startsWith('## ') && !timestampMatch) {
+            // Check for other section headers (reset entry) - but not commit separators
+            if (line.startsWith('## ') && !timestampMatch && !line.includes('COMMIT:')) {
               // Save previous entry if exists
               if (currentTimestamp && currentEntry.trim() && isInDateRange(currentTimestamp)) {
                 timelineEvents.push({
