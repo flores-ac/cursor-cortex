@@ -1,0 +1,30 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+RULE: "Document the Journey, Not Just the Destination"
+
+Real Cursor-Cortex usage patterns from this project show:
+
+💭 CAPTURE DISCOVERY MOMENTS:
+- "Variable scope issues in JavaScript are critical" (from lessons learned)
+- "Context files ≠ Branch notes" (different purposes, different updates)
+- "JSON-RPC protocol breaks with console.log()" (debugging insight)
+
+🔍 ASK WHAT WE ALREADY KNOW:
+- Search tacit knowledge BEFORE implementing
+- Check for "post-mortems" and "lessons learned" docs
+- Look for patterns in how problems were solved before
+
+📝 DOCUMENT WHAT YOU LEARN:
+- WHY decisions were made, not just WHAT was decided
+- Edge cases and gotchas that bit you
+- When approaches work vs when they don't
+
+🔄 BUILD ON WHAT EXISTS:
+- Enhance tools rather than rebuild them
+- Reference related documentation
+- Connect new knowledge to existing patterns
+
+The project itself shows proper use - it's not about rules, it's about naturally documenting your thinking process as you work.

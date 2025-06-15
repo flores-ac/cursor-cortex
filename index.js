@@ -326,6 +326,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: [],
         },
       },
+      {
+        name: 'construct_project_narrative',
+        description: 'Phase 2.1: Narrative Construction Engine - Weaves scattered technical details into coherent production stories using Knowledge Archaeology techniques',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectName: { type: 'string', description: 'Name of the project to construct narrative for' },
+            branchName: { type: 'string', description: 'Branch to analyze (defaults to main)' },
+            includeKnowledge: { type: 'boolean', description: 'Include tacit knowledge documents in narrative (default: true)' },
+            includeContext: { type: 'boolean', description: 'Include project context information (default: true)' },
+            narrativeType: { type: 'string', description: 'Type of narrative to construct: "technical", "executive", "full" (default: full)' },
+          },
+          required: ['projectName'],
+        },
+      },
     ],
   };
 });
@@ -2740,6 +2755,11 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           response += `3. **Documentation Enhancement**: ${lowScoreBranches.length} branches need documentation improvement for better knowledge capture\n`;
         }
         
+        response += '\n';
+        
+        response += '---\n\n';
+        response += '💡 **Next Steps**: Use findings to improve documentation completeness and production readiness across projects.\n';
+        
         return {
           content: [
             {
@@ -2759,6 +2779,46 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           ],
         };
       }
+    } else if (name === 'construct_project_narrative') {
+      try {
+        const { projectName, branchName = 'main', includeKnowledge = true, includeContext = true, narrativeType = 'full' } = toolArgs;
+        
+        console.error(`Constructing project narrative for project "${projectName}"`);
+        
+        // Get root storage directory for cursor-cortex files
+        const storageRoot = getStorageRoot();
+        
+        // Get branch notes for the project
+        const branchNotes = await getBranchNotesForProject(projectName);
+        
+        // Get knowledge documents for the project
+        const knowledgeDocs = includeKnowledge ? await getKnowledgeDocumentsForProject(projectName) : [];
+        
+        // Get context information for the project
+        const contextInfo = includeContext ? await getContextInfoForProject(projectName) : null;
+        
+        // Construct the narrative
+        const narrative = constructProjectNarrative(branchNotes, knowledgeDocs, contextInfo);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: narrative,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error constructing project narrative: ${error.message}`,
+            },
+          ],
+        };
+      }
     }
 
     throw new Error(`Tool not found: ${name}`);
@@ -2774,6 +2834,492 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
     };
   }
 });
+
+// =============================================================================
+// NARRATIVE CONSTRUCTION ENGINE (Phase 2.1)
+// Knowledge Archaeology & Reality Sync Engine
+// =============================================================================
+
+/**
+ * Constructs cohesive narratives from scattered technical details
+ * Part of Knowledge Archaeology & Reality Sync Engine
+ */
+function constructProjectNarrative(branchNotes, knowledgeDocs, contextInfo) {
+  try {
+    const narrative = {
+      timeline: constructTimeline(branchNotes),
+      technicalJourney: constructTechnicalJourney(branchNotes, knowledgeDocs),
+      businessValue: extractBusinessValue(branchNotes, knowledgeDocs, contextInfo),
+      keyDecisions: identifyKeyDecisions(branchNotes, knowledgeDocs),
+      productionStory: constructProductionStory(branchNotes, knowledgeDocs),
+      executiveSummary: generateExecutiveSummary(branchNotes, knowledgeDocs, contextInfo)
+    };
+    
+    return formatNarrativeOutput(narrative);
+  } catch (error) {
+    return `❌ Narrative Construction Error: ${error.message}`;
+  }
+}
+
+/**
+ * Constructs chronological timeline from branch notes and commits
+ */
+function constructTimeline(branchNotes) {
+  const events = [];
+  
+  // Extract commit separators with dates
+  const commitPattern = /(?:^|\n)---\n.*?COMMIT:\s*([a-f0-9]{7,})\s*\|\s*(.+?)(?:\n|$)/gm;
+  let match;
+  
+  while ((match = commitPattern.exec(branchNotes)) !== null) {
+    const [, hash, timestamp] = match;
+    events.push({
+      type: 'commit',
+      date: timestamp.trim(),
+      hash: hash,
+      significance: 'high'
+    });
+  }
+  
+  // Extract major milestones from headings
+  const milestonePattern = /^## (.+?)$/gm;
+  while ((match = milestonePattern.exec(branchNotes)) !== null) {
+    const milestone = match[1];
+    if (!milestone.includes('COMMIT:') && milestone.length > 3) {
+      events.push({
+        type: 'milestone',
+        description: milestone,
+        significance: 'medium'
+      });
+    }
+  }
+  
+  // Sort by date where available
+  events.sort((a, b) => {
+    if (a.date && b.date) {
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
+      if (!isNaN(dateA) && !isNaN(dateB)) {
+        return dateA - dateB;
+      }
+    }
+    return 0;
+  });
+  
+  return events;
+}
+
+/**
+ * Traces the technical evolution and key architectural decisions
+ */
+function constructTechnicalJourney(branchNotes, knowledgeDocs) {
+  const journey = {
+    architecturalEvolution: [],
+    technologyChoices: [],
+    problemSolving: [],
+    technicalDebt: []
+  };
+  
+  // Analyze architectural patterns
+  const archPatterns = [
+    'microservices', 'monolith', 'api', 'database', 'cache', 'queue',
+    'docker', 'kubernetes', 'serverless', 'event-driven', 'mcp', 'node.js'
+  ];
+  
+  const content = branchNotes + '\n' + knowledgeDocs;
+  const lowerContent = content.toLowerCase();
+  
+  archPatterns.forEach(pattern => {
+    if (lowerContent.includes(pattern)) {
+      const contexts = extractContextAroundKeyword(content, pattern, 100);
+      if (contexts.length > 0) {
+        journey.architecturalEvolution.push({
+          technology: pattern,
+          contexts: contexts,
+          impact: 'medium'
+        });
+      }
+    }
+  });
+  
+  // Extract problem-solution pairs
+  const problemIndicators = ['issue', 'problem', 'bug', 'error', 'challenge', 'limitation'];
+  const solutionIndicators = ['solved', 'fixed', 'implemented', 'resolved', 'approach', 'solution'];
+  
+  problemIndicators.forEach(indicator => {
+    const problems = extractContextAroundKeyword(content, indicator, 150);
+    problems.forEach(problem => {
+      const hasSolution = solutionIndicators.some(sol => 
+        problem.toLowerCase().includes(sol)
+      );
+      if (hasSolution) {
+        journey.problemSolving.push({
+          context: problem,
+          type: 'resolved',
+          significance: 'high'
+        });
+      }
+    });
+  });
+  
+  return journey;
+}
+
+/**
+ * Extracts business value and impact from technical work
+ */
+function extractBusinessValue(branchNotes, knowledgeDocs, contextInfo) {
+  const businessValue = {
+    objectives: [],
+    impacts: [],
+    stakeholderValue: [],
+    outcomes: []
+  };
+  
+  const content = branchNotes + '\n' + knowledgeDocs;
+  
+  // Extract objectives from context or requirements
+  if (contextInfo && contextInfo.description) {
+    businessValue.objectives.push({
+      description: contextInfo.description,
+      source: 'context',
+      confidence: 'high'
+    });
+  }
+  
+  // Look for business impact keywords
+  const impactKeywords = [
+    'efficiency', 'performance', 'scalability', 'reliability', 'security',
+    'user experience', 'cost reduction', 'automation', 'productivity'
+  ];
+  
+  impactKeywords.forEach(keyword => {
+    const contexts = extractContextAroundKeyword(content, keyword, 100);
+    contexts.forEach(context => {
+      businessValue.impacts.push({
+        type: keyword,
+        description: context,
+        confidence: 'medium'
+      });
+    });
+  });
+  
+  return businessValue;
+}
+
+/**
+ * Identifies and contextualizes key technical decisions
+ */
+function identifyKeyDecisions(branchNotes, knowledgeDocs) {
+  const decisions = [];
+  
+  const content = branchNotes + '\n' + knowledgeDocs;
+  
+  // Look for decision patterns
+  const decisionPatterns = [
+    /decided to (.+?)(?:\.|$)/gi,
+    /chose (.+?) because (.+?)(?:\.|$)/gi,
+    /approach[ed]? (.+?) by (.+?)(?:\.|$)/gi,
+    /implemented (.+?) to (.+?)(?:\.|$)/gi
+  ];
+  
+  decisionPatterns.forEach(pattern => {
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+      decisions.push({
+        decision: match[1],
+        reasoning: match[2] || 'Not explicitly stated',
+        context: match[0],
+        significance: 'medium'
+      });
+    }
+  });
+  
+  return decisions;
+}
+
+/**
+ * Constructs the production deployment story
+ */
+function constructProductionStory(branchNotes, knowledgeDocs) {
+  const story = {
+    readiness: 'unknown',
+    deploymentPath: [],
+    prerequisites: [],
+    risks: [],
+    successCriteria: []
+  };
+  
+  const content = branchNotes + '\n' + knowledgeDocs;
+  
+  // Assess production readiness signals
+  const productionSignals = [
+    'deployed', 'production', 'live', 'released', 'shipping',
+    'testing', 'qa', 'staging', 'integration'
+  ];
+  
+  const readinessScore = productionSignals.reduce((score, signal) => {
+    return score + (content.toLowerCase().includes(signal) ? 1 : 0);
+  }, 0);
+  
+  if (readinessScore >= 4) story.readiness = 'high';
+  else if (readinessScore >= 2) story.readiness = 'medium';
+  else story.readiness = 'low';
+  
+  // Extract deployment-related information
+  const deploymentKeywords = ['deploy', 'release', 'launch', 'rollout'];
+  deploymentKeywords.forEach(keyword => {
+    const contexts = extractContextAroundKeyword(content, keyword, 100);
+    story.deploymentPath.push(...contexts.map(ctx => ({
+      step: ctx,
+      keyword: keyword
+    })));
+  });
+  
+  return story;
+}
+
+/**
+ * Generates executive summary suitable for stakeholders
+ */
+function generateExecutiveSummary(branchNotes, knowledgeDocs, contextInfo) {
+  const wordCount = (branchNotes + knowledgeDocs).split(/\s+/).length;
+  const complexity = wordCount > 5000 ? 'high' : wordCount > 1000 ? 'medium' : 'low';
+  
+  const summary = {
+    projectOverview: contextInfo?.title || 'Technical Implementation Project',
+    keyAchievements: [],
+    businessImpact: [],
+    technicalHighlights: [],
+    nextSteps: [],
+    complexity: complexity,
+    documentationHealth: wordCount > 500 ? 'good' : 'needs attention'
+  };
+  
+  // Extract key achievements from commits and milestones
+  const commitPattern = /COMMIT:\s*[a-f0-9]{7,}\s*\|\s*(.+?)$/gm;
+  let match;
+  while ((match = commitPattern.exec(branchNotes)) !== null) {
+    const achievement = match[1].trim();
+    if (!summary.keyAchievements.includes(achievement) && achievement.length > 5) {
+      summary.keyAchievements.push(achievement);
+    }
+  }
+  
+  return summary;
+}
+
+/**
+ * Helper function to extract context around keywords
+ */
+function extractContextAroundKeyword(content, keyword, contextLength = 100) {
+  const contexts = [];
+  const lines = content.split('\n');
+  
+  lines.forEach((line, index) => {
+    if (line.toLowerCase().includes(keyword.toLowerCase())) {
+      const start = Math.max(0, index - 1);
+      const end = Math.min(lines.length, index + 2);
+      const context = lines.slice(start, end).join(' ').trim();
+      
+      if (context.length > 10 && context.length <= contextLength * 2) {
+        contexts.push(context);
+      }
+    }
+  });
+  
+  return contexts;
+}
+
+/**
+ * Formats narrative output into readable structure
+ */
+function formatNarrativeOutput(narrative) {
+  let output = '# 📖 Project Narrative Construction\n\n';
+  
+  // Executive Summary
+  output += '## 🎯 Executive Summary\n\n';
+  output += `**Project**: ${narrative.executiveSummary.projectOverview}\n`;
+  output += `**Complexity**: ${narrative.executiveSummary.complexity}\n`;
+  output += `**Documentation Health**: ${narrative.executiveSummary.documentationHealth}\n\n`;
+  
+  if (narrative.executiveSummary.keyAchievements.length > 0) {
+    output += '**Key Achievements**:\n';
+    narrative.executiveSummary.keyAchievements.slice(0, 5).forEach(achievement => {
+      output += `- ${achievement}\n`;
+    });
+    output += '\n';
+  }
+  
+  // Timeline
+  if (narrative.timeline.length > 0) {
+    output += '## ⏱️ Project Timeline\n\n';
+    narrative.timeline.forEach(event => {
+      if (event.type === 'commit') {
+        output += `- **${event.date}**: Commit ${event.hash}\n`;
+      } else {
+        output += `- **Milestone**: ${event.description}\n`;
+      }
+    });
+    output += '\n';
+  }
+  
+  // Technical Journey
+  output += '## 🛠️ Technical Journey\n\n';
+  if (narrative.technicalJourney.architecturalEvolution.length > 0) {
+    output += '**Architecture & Technology**:\n';
+    narrative.technicalJourney.architecturalEvolution.forEach(tech => {
+      output += `- **${tech.technology}**: Used in project context\n`;
+    });
+    output += '\n';
+  }
+  
+  if (narrative.technicalJourney.problemSolving.length > 0) {
+    output += '**Problem Solving Highlights**:\n';
+    narrative.technicalJourney.problemSolving.slice(0, 3).forEach(problem => {
+      output += `- ${problem.context.substring(0, 150)}...\n`;
+    });
+    output += '\n';
+  }
+  
+  // Business Value
+  if (narrative.businessValue.impacts.length > 0) {
+    output += '## 💼 Business Value\n\n';
+    narrative.businessValue.impacts.slice(0, 5).forEach(impact => {
+      output += `- **${impact.type}**: ${impact.description.substring(0, 100)}...\n`;
+    });
+    output += '\n';
+  }
+  
+  // Production Story
+  output += '## 🚀 Production Readiness\n\n';
+  output += `**Status**: ${narrative.productionStory.readiness} readiness\n`;
+  if (narrative.productionStory.deploymentPath.length > 0) {
+    output += '**Deployment Context**:\n';
+    narrative.productionStory.deploymentPath.slice(0, 3).forEach(step => {
+      output += `- ${step.step.substring(0, 100)}...\n`;
+    });
+  }
+  output += '\n';
+  
+  // Key Decisions
+  if (narrative.keyDecisions.length > 0) {
+    output += '## 🎯 Key Technical Decisions\n\n';
+    narrative.keyDecisions.slice(0, 5).forEach(decision => {
+      output += `- **Decision**: ${decision.decision}\n`;
+      if (decision.reasoning !== 'Not explicitly stated') {
+        output += `  - **Reasoning**: ${decision.reasoning}\n`;
+      }
+    });
+    output += '\n';
+  }
+  
+  output += '---\n\n';
+  output += '💡 **Generated by Knowledge Archaeology & Reality Sync Engine v1.0**\n';
+  
+  return output;
+}
+
+/**
+ * Helper functions for narrative construction data gathering
+ */
+async function getBranchNotesForProject(projectName) {
+  try {
+    const storageRoot = getStorageRoot();
+    const branchNotesDir = path.join(storageRoot, 'branch_notes', projectName);
+    
+    let allBranchNotes = '';
+    
+    try {
+      const branchFiles = await fs.readdir(branchNotesDir);
+      
+      for (const branchFile of branchFiles) {
+        if (branchFile.endsWith('.md')) {
+          const branchPath = path.join(branchNotesDir, branchFile);
+          const content = await fs.readFile(branchPath, 'utf-8');
+          allBranchNotes += `\n\n=== BRANCH: ${branchFile.replace('.md', '')} ===\n\n`;
+          allBranchNotes += content;
+        }
+      }
+    } catch (error) {
+      console.error(`No branch notes found for project ${projectName}: ${error.message}`);
+    }
+    
+    return allBranchNotes;
+  } catch (error) {
+    console.error(`Error getting branch notes for ${projectName}: ${error.message}`);
+    return '';
+  }
+}
+
+async function getKnowledgeDocumentsForProject(projectName) {
+  try {
+    const storageRoot = getStorageRoot();
+    const knowledgeDir = path.join(storageRoot, 'knowledge', projectName);
+    
+    let allKnowledgeDocs = '';
+    
+    try {
+      const knowledgeFiles = await fs.readdir(knowledgeDir);
+      
+      for (const knowledgeFile of knowledgeFiles) {
+        if (knowledgeFile.endsWith('.md')) {
+          const knowledgePath = path.join(knowledgeDir, knowledgeFile);
+          const content = await fs.readFile(knowledgePath, 'utf-8');
+          allKnowledgeDocs += `\n\n=== KNOWLEDGE: ${knowledgeFile.replace('.md', '')} ===\n\n`;
+          allKnowledgeDocs += content;
+        }
+      }
+    } catch (error) {
+      console.error(`No knowledge documents found for project ${projectName}: ${error.message}`);
+    }
+    
+    return allKnowledgeDocs;
+  } catch (error) {
+    console.error(`Error getting knowledge documents for ${projectName}: ${error.message}`);
+    return '';
+  }
+}
+
+async function getContextInfoForProject(projectName) {
+  try {
+    const storageRoot = getStorageRoot();
+    const contextDir = path.join(storageRoot, 'context', projectName);
+    
+    try {
+      const contextFiles = await fs.readdir(contextDir);
+      
+      // Look for main context file or use first available
+      let contextFile = contextFiles.find(f => f.includes('main') || f.includes('master')) || contextFiles[0];
+      
+      if (contextFile && contextFile.endsWith('.md')) {
+        const contextPath = path.join(contextDir, contextFile);
+        const content = await fs.readFile(contextPath, 'utf-8');
+        
+        // Parse context file for structured info
+        const titleMatch = content.match(/^# (.+)$/m);
+        const descMatch = content.match(/## Description\s*\n\n(.+?)(?:\n##|$)/s);
+        
+        return {
+          title: titleMatch ? titleMatch[1] : projectName,
+          description: descMatch ? descMatch[1].trim() : 'No description available',
+          rawContent: content
+        };
+      }
+    } catch (error) {
+      console.error(`No context files found for project ${projectName}: ${error.message}`);
+    }
+    
+    return {
+      title: projectName,
+      description: 'No context information available',
+      rawContent: ''
+    };
+  } catch (error) {
+    console.error(`Error getting context info for ${projectName}: ${error.message}`);
+    return null;
+  }
+}
 
 // Start the server
 async function main() {
