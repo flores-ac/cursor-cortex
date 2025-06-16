@@ -2578,17 +2578,8 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             }
           });
           
-          // Technology stack detection
-          const techStack = ['sql', 'python', 'databricks', 'docker', 'git', 'mcp', 'node.js', 'javascript'];
-          techStack.forEach(tech => {
-            if (lowerContent.includes(tech)) {
-              relationships.push({
-                type: 'technology',
-                value: tech,
-                confidence: 'medium'
-              });
-            }
-          });
+          // Technology stack detection removed - was creating biased scoring
+          // based on specific tech keywords rather than actual quality
           
           return relationships;
         }
@@ -2739,14 +2730,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             response += '\n';
           }
           
-          const techRels = Object.values(globalRelationships).filter(r => r.type === 'technology');
-          if (techRels.length > 0) {
-            response += `### 🛠️ Technology Stack Distribution\n`;
-            techRels.sort((a, b) => b.branches.length - a.branches.length).slice(0, 5).forEach(rel => {
-              response += `- **${rel.value}**: ${rel.branches.length} branches\n`;
-            });
-            response += '\n';
-          }
+          // Technology stack distribution removed - was based on biased keyword detection
         }
         
         // Detailed Branch Analysis
