@@ -87,7 +87,13 @@ Create or edit `~/.cursor/mcp.json`:
         "update_checklist",
         "sign_off_checklist",
         "archive_branch_note",
-        "clear_branch_note"
+        "clear_branch_note",
+        "list_all_branch_notes",
+        "enhanced_branch_survey",
+        "construct_project_narrative",
+        "timeline_reconstruction",
+        "context_sync_guidance",
+        "analyze_documentation_gaps"
       ],
       "stdio": true,
       "env": {
@@ -180,6 +186,15 @@ Create reusable solution documents:
 "Create tacit knowledge document about our JWT implementation approach"
 ```
 
+### **Knowledge Archaeology & Project Intelligence**
+Analyze and synthesize project knowledge:
+```
+"Survey all my branch documentation and show completeness scores"
+"Construct a project narrative for the user authentication system"
+"Show me a timeline of all development across projects"
+"Analyze this folder structure for documentation gaps"
+```
+
 ## 🛠️ All Available Tools
 
 <details>
@@ -225,6 +240,18 @@ Create reusable solution documents:
 
 - `archive_branch_note` - Archive completed work
 - `clear_branch_note` - Reset branch documentation
+
+</details>
+
+<details>
+<summary><strong>🔍 Knowledge Archaeology & Reality Sync Engine</strong></summary>
+
+- `list_all_branch_notes` - View all branch notes across all projects with priority ordering
+- `enhanced_branch_survey` - Comprehensive analysis of documentation with completeness scoring and relationship mapping
+- `construct_project_narrative` - Weave scattered technical details into coherent production stories
+- `timeline_reconstruction` - Extract chronological timeline data from branch notes and commit separators
+- `context_sync_guidance` - Get contextual guidance for syncing project contexts based on timeline data
+- `analyze_documentation_gaps` - Analyze folder structure to identify documentation needs and auto-create checklists
 
 </details>
 
