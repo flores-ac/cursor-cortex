@@ -262,13 +262,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'read_tacit_knowledge',
-        description: 'Read tacit knowledge documents',
+        description: 'Read tacit knowledge documents - use documentName for exact filename access or searchTerm for flexible content/title search',
         inputSchema: {
           type: 'object',
           properties: {
             projectName: { type: 'string', description: 'Name of the project' },
-            documentName: { type: 'string', description: 'Name of the document (or \'list\' to see all available documents)' },
-            searchTerm: { type: 'string', description: 'Term to search for across documents' },
+            documentName: { type: 'string', description: 'EXACT filename from list (use "list" first to see available filenames, e.g., "2025-06-23-My_Document.md")' },
+            searchTerm: { type: 'string', description: 'Flexible search across document titles and content (more forgiving than documentName)' },
             searchTags: { type: 'string', description: 'Tags to filter documents by (comma-separated)' },
             crossProject: { type: 'boolean', description: 'Whether to search across all projects' }
           },
