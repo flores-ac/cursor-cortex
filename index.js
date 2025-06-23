@@ -101,19 +101,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             description: { type: 'string', description: 'Description of what the feature or pipeline does' },
             additionalInfo: { type: 'string', description: 'Any additional information to include' },
             relatedProjects: { type: 'array', description: 'List of related projects' },
+            scope: { type: 'string', description: 'Context scope: "project" for shared project context, "branch" for branch-specific context', enum: ['project', 'branch'] },
           },
           required: ['branchName', 'projectName', 'title', 'description'],
         },
       },
       {
         name: 'read_context_file',
-        description: 'Read the context file for the current branch',
+        description: 'Read the context file for the current branch - shows both project and branch context',
         inputSchema: {
           type: 'object',
           properties: {
             branchName: { type: 'string', description: 'Name of the branch' },
             projectName: { type: 'string', description: 'Name of the project' },
             currentProject: { type: 'string', description: 'Name of the current project (for cross-project warning)' },
+            scope: { type: 'string', description: 'Context scope: "project", "branch", or "both" (default)', enum: ['project', 'branch', 'both'] },
           },
           required: ['branchName', 'projectName'],
         },
@@ -387,6 +389,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['folderPath', 'projectName'],
         },
       },
+      {
+        name: 'migrate_context_files',
+        description: 'Migrate existing context files to the Smart Hybrid Context System. Converts main/master contexts to project_context.md and preserves branch-specific contexts.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectName: { type: 'string', description: 'Name of the project to migrate (or "all" for all projects)' },
+            dryRun: { type: 'boolean', description: 'Preview migration without making changes (default: true)' },
+            createBackup: { type: 'boolean', description: 'Create backup of existing contexts before migration (default: true)' },
+            migrationStrategy: { type: 'string', description: 'Migration strategy: "main-to-project" (default), "custom"', enum: ['main-to-project', 'custom'] },
+          },
+          required: ['projectName'],
+        },
+      },
     ],
   };
 });
@@ -578,10 +594,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // }
     
     // Get path to context file
-    function getContextFilePath(projectName, branchName) {
+    function getContextFilePath(projectName, branchName, scope = 'branch') {
       const safeProjectName = projectName.replace(/[^a-zA-Z0-9-_]/g, '_');
       const safeBranchName = branchName.replace(/[^a-zA-Z0-9-_]/g, '_');
-      return path.join(getStorageRoot(), 'context', safeProjectName, `${safeBranchName}_context.md`);
+      
+      if (scope === 'project') {
+        // Smart hybrid: default to shared project context
+        return path.join(getStorageRoot(), 'context', safeProjectName, 'project_context.md');
+      } else {
+        // Branch-specific context (legacy format maintained for backward compatibility)
+        return path.join(getStorageRoot(), 'context', safeProjectName, `${safeBranchName}_context.md`);
+      }
     }
 
     // Get all context files for a project
@@ -839,9 +862,38 @@ All changes:
       }
     } else if (name === 'update_context_file') {
       try {
-        const { branchName, projectName, title, description, additionalInfo, relatedProjects } = toolArgs;
-        const filePath = getContextFilePath(projectName, branchName);
+        const { branchName, projectName, title, description, additionalInfo, relatedProjects, scope = 'project' } = toolArgs;
+        
+        // Validate scope parameter
+        const validScopes = ['project', 'branch'];
+        if (scope && !validScopes.includes(scope)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Error: Invalid scope "${scope}". Valid scopes are: ${validScopes.join(', ')}`,
+              },
+            ],
+          };
+        }
+        
+        const filePath = getContextFilePath(projectName, branchName, scope);
         await ensureDirectoryExists(filePath);
+        
+        // Check for existing content and warn about overwrite
+        let existingContent = null;
+        let isOverwrite = false;
+        try {
+          existingContent = await fs.readFile(filePath, 'utf-8');
+          isOverwrite = true;
+          console.error(`WARNING: Overwriting existing context file at ${filePath}`);
+        } catch (error) {
+          if (error.code !== 'ENOENT') {
+            throw error;
+          }
+          console.error(`Creating new context file at ${filePath}`);
+        }
         
         console.error(`Updating context file at ${filePath}`);
         
@@ -873,7 +925,7 @@ All changes:
           content: [
             {
               type: 'text',
-              text: `Successfully updated context file for "${title}"`,
+              text: `Successfully ${isOverwrite ? 'updated' : 'created'} context file for "${title}"${isOverwrite ? ' (overwrote existing content)' : ''}`,
             },
           ],
         };
@@ -890,50 +942,96 @@ All changes:
       }
     } else if (name === 'read_context_file') {
       try {
-        const { branchName, projectName, currentProject } = toolArgs;
-        const filePath = getContextFilePath(projectName, branchName);
+        const { branchName, projectName, currentProject, scope = 'both' } = toolArgs;
         
-        console.error(`Reading context file from ${filePath}`);
+        // Validate scope parameter
+        const validScopes = ['project', 'branch', 'both'];
+        if (scope && !validScopes.includes(scope)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Error: Invalid scope "${scope}". Valid scopes are: ${validScopes.join(', ')}`,
+              },
+            ],
+          };
+        }
+        
+        console.error(`Reading context files for project "${projectName}", branch "${branchName}", scope "${scope}"`);
         
         // Check if accessing external project context
         const isExternal = currentProject && isExternalContextFile(currentProject, projectName);
         
-        try {
-          const content = await fs.readFile(filePath, 'utf-8');
-          
-          // Prepare response content
-          const responseContent = [];
-          
-          // Add warning if accessing external project
-          if (isExternal) {
-            responseContent.push({
-              type: 'text',
-              text: `⚠️ WARNING: You are accessing a context file from project "${projectName}" while working in project "${currentProject}". ⚠️\n\n`,
-            });
-          }
-          
-          // Add the actual content with project label
+        // Prepare response content
+        const responseContent = [];
+        
+        // Add warning if accessing external project
+        if (isExternal) {
           responseContent.push({
             type: 'text',
-            text: `[Project: ${projectName}]\n${content}`,
+            text: `⚠️ WARNING: You are accessing a context file from project "${projectName}" while working in project "${currentProject}". ⚠️\n\n`,
           });
-          
-          return {
-            content: responseContent,
-          };
-        } catch (error) {
-          if (error.code === 'ENOENT') {
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: `No context file exists yet for branch "${branchName}" in project "${projectName}". Use update_context_file to create one.`,
-                },
-              ],
-            };
-          }
-          throw error;
         }
+        
+        let hasContent = false;
+        let resultText = `[Project: ${projectName}]\n\n`;
+        
+        // Read project context if requested
+        if (scope === 'project' || scope === 'both') {
+          const projectFilePath = getContextFilePath(projectName, branchName, 'project');
+          try {
+            const projectContent = await fs.readFile(projectFilePath, 'utf-8');
+            resultText += `# 📋 PROJECT CONTEXT (Shared)\n\n${projectContent}\n\n`;
+            hasContent = true;
+          } catch (error) {
+            if (error.code === 'ENOENT') {
+              if (scope === 'project') {
+                resultText += `# 📋 PROJECT CONTEXT (Shared)\n\n*No shared project context exists yet. Use update_context_file with scope="project" to create one.*\n\n`;
+              } else {
+                resultText += `# 📋 PROJECT CONTEXT (Shared)\n\n*No shared project context available.*\n\n`;
+              }
+            } else {
+              throw error;
+            }
+          }
+        }
+        
+        // Read branch context if requested
+        if (scope === 'branch' || scope === 'both') {
+          const branchFilePath = getContextFilePath(projectName, branchName, 'branch');
+          try {
+            const branchContent = await fs.readFile(branchFilePath, 'utf-8');
+            resultText += `# 🌿 BRANCH CONTEXT (${branchName})\n\n${branchContent}\n\n`;
+            hasContent = true;
+          } catch (error) {
+            if (error.code === 'ENOENT') {
+              if (scope === 'branch') {
+                resultText += `# 🌿 BRANCH CONTEXT (${branchName})\n\n*No branch-specific context exists yet. Use update_context_file with scope="branch" to create one.*\n\n`;
+              } else {
+                resultText += `# 🌿 BRANCH CONTEXT (${branchName})\n\n*No branch-specific context available.*\n\n`;
+              }
+            } else {
+              throw error;
+            }
+          }
+        }
+        
+        if (!hasContent && scope === 'both') {
+          resultText += `*No context files exist yet for project "${projectName}". Use update_context_file to create context.*\n\n`;
+          resultText += `💡 **Smart Hybrid Context System:**\n`;
+          resultText += `- Default: \`scope="project"\` for shared project context\n`;
+          resultText += `- Branch-specific: \`scope="branch"\` when needed\n`;
+        }
+        
+        responseContent.push({
+          type: 'text',
+          text: resultText,
+        });
+        
+        return {
+          content: responseContent,
+        };
       } catch (error) {
         return {
           isError: true,
@@ -2962,6 +3060,44 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           ],
         };
       }
+    } else if (name === 'migrate_context_files') {
+      try {
+        const { 
+          projectName, 
+          dryRun = true, 
+          createBackup = true, 
+          migrationStrategy = 'main-to-project' 
+        } = toolArgs;
+        
+        console.error(`Migrating context files for project: ${projectName}, dryRun: ${dryRun}`);
+        
+        const migration = await migrateContextFiles(
+          projectName, 
+          dryRun, 
+          createBackup, 
+          migrationStrategy
+        );
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: migration,
+            },
+          ],
+        };
+      } catch (error) {
+        console.error(`Error migrating context files: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error migrating context files: ${error.message}`,
+            },
+          ],
+        };
+      }
     }
 
     throw new Error(`Tool not found: ${name}`);
@@ -4297,6 +4433,230 @@ function formatDocumentationAnalysis(folderPath, fileStructure, dependencyMap, c
   output += `*Automated analysis for strategic knowledge capture and documentation planning.*\n`;
   
   return output;
+}
+
+/**
+ * Migrate existing context files to Smart Hybrid Context System
+ * Converts main/master contexts to project_context.md and preserves branch-specific contexts
+ */
+async function migrateContextFiles(projectName, dryRun, createBackup, migrationStrategy) {
+  const storageRoot = path.join(os.homedir(), '.cursor-cortex');
+  
+  // Helper functions for migration
+  async function getAllContextProjects() {
+    const contextRoot = path.join(storageRoot, 'context');
+    try {
+      const dirs = await fs.readdir(contextRoot);
+      return dirs;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  async function listContextFiles(projectName) {
+    const contextDir = path.join(storageRoot, 'context', projectName.replace(/[^a-zA-Z0-9-_]/g, '_'));
+    try {
+      const files = await fs.readdir(contextDir);
+      return files.filter(file => file.endsWith('_context.md'));
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  async function ensureDirectoryExists(filePath) {
+    const dir = path.dirname(filePath);
+    try {
+      await fs.access(dir);
+    } catch {
+      await fs.mkdir(dir, { recursive: true });
+    }
+  }
+  
+  let output = `# 🔄 Context Files Migration Report\n\n`;
+  output += `**Project:** ${projectName}\n`;
+  output += `**Strategy:** ${migrationStrategy}\n`;
+  output += `**Dry Run:** ${dryRun ? 'Yes (Preview Only)' : 'No (Executing Changes)'}\n`;
+  output += `**Backup:** ${createBackup ? 'Yes' : 'No'}\n\n`;
+  
+  const migrations = [];
+  const errors = [];
+  
+  try {
+    // Get all projects to migrate
+    const projectsToMigrate = projectName === 'all' ? 
+      await getAllContextProjects() : 
+      [projectName];
+    
+    output += `## Projects to Process: ${projectsToMigrate.length}\n\n`;
+    
+    for (const project of projectsToMigrate) {
+      output += `### 📁 Project: ${project}\n\n`;
+      
+      try {
+        const contextDir = path.join(storageRoot, 'context', project);
+        const contextFiles = await listContextFiles(project);
+        
+        if (contextFiles.length === 0) {
+          output += `*No context files found for project ${project}*\n\n`;
+          continue;
+        }
+        
+        output += `**Found ${contextFiles.length} context files:**\n`;
+        for (const file of contextFiles) {
+          const branchName = file.replace('_context.md', '');
+          const filePath = path.join(contextDir, file);
+          
+          // Read file to get title and content preview
+          try {
+            const content = await fs.readFile(filePath, 'utf-8');
+            const titleMatch = content.match(/# (.+?)\n/);
+            const title = titleMatch ? titleMatch[1] : 'No title';
+            const wordCount = content.split(/\s+/).length;
+            
+            output += `- \`${file}\` (${branchName}) - "${title}" (${wordCount} words)\n`;
+            
+            // Determine migration action based on strategy
+            let migrationAction = null;
+            let targetFile = null;
+            
+            if (migrationStrategy === 'main-to-project') {
+              if (branchName === 'main' || branchName === 'master') {
+                migrationAction = 'migrate_to_project';
+                targetFile = 'project_context.md';
+              } else if (branchName === 'exp' || branchName === 'experimental') {
+                migrationAction = 'keep_as_branch';
+                targetFile = file; // Keep as-is
+              } else {
+                migrationAction = 'evaluate_for_project';
+                targetFile = 'project_context.md'; // Default to project context
+              }
+            }
+            
+            if (migrationAction) {
+              migrations.push({
+                project,
+                sourceFile: file,
+                sourcePath: filePath,
+                targetFile,
+                targetPath: path.join(contextDir, targetFile),
+                branchName,
+                title,
+                content,
+                action: migrationAction,
+                wordCount
+              });
+            }
+            
+          } catch (readError) {
+            errors.push(`Error reading ${file}: ${readError.message}`);
+            output += `- \`${file}\` - ❌ Error reading file\n`;
+          }
+        }
+        output += '\n';
+        
+      } catch (projectError) {
+        errors.push(`Error processing project ${project}: ${projectError.message}`);
+        output += `❌ Error processing project: ${projectError.message}\n\n`;
+      }
+    }
+    
+    // Generate migration plan
+    output += `## 📋 Migration Plan\n\n`;
+    
+    if (migrations.length === 0) {
+      output += `*No migrations needed or possible.*\n\n`;
+    } else {
+      for (const migration of migrations) {
+        output += `**${migration.project}/${migration.sourceFile}**\n`;
+        output += `- Action: ${migration.action}\n`;
+        output += `- Target: ${migration.targetFile}\n`;
+        output += `- Title: "${migration.title}"\n`;
+        output += `- Size: ${migration.wordCount} words\n`;
+        
+        if (migration.action === 'migrate_to_project') {
+          output += `- 🔄 Will migrate to shared project context\n`;
+        } else if (migration.action === 'keep_as_branch') {
+          output += `- 🌿 Will keep as branch-specific context\n`;
+        } else if (migration.action === 'evaluate_for_project') {
+          output += `- 🤔 Recommended for project context (user decision)\n`;
+        }
+        output += '\n';
+      }
+    }
+    
+    // Execute migrations if not dry run
+    if (!dryRun && migrations.length > 0) {
+      output += `## 🚀 Executing Migrations\n\n`;
+      
+      for (const migration of migrations) {
+        try {
+          // Create backup if requested
+          if (createBackup) {
+            const backupDir = path.join(storageRoot, 'context', migration.project, 'backup');
+            await ensureDirectoryExists(path.join(backupDir, 'placeholder'));
+            const backupPath = path.join(backupDir, `${Date.now()}_${migration.sourceFile}`);
+            await fs.copyFile(migration.sourcePath, backupPath);
+            output += `✅ Backup created: ${backupPath}\n`;
+          }
+          
+          if (migration.action === 'migrate_to_project') {
+            // Check if target already exists
+            const targetExists = await fs.access(migration.targetPath).then(() => true).catch(() => false);
+            
+            if (targetExists) {
+              output += `⚠️ Target file ${migration.targetFile} already exists - skipping\n`;
+            } else {
+              // Copy content to new location
+              await fs.writeFile(migration.targetPath, migration.content);
+              output += `✅ Migrated to: ${migration.targetFile}\n`;
+              
+              // Remove original file
+              await fs.unlink(migration.sourcePath);
+              output += `✅ Removed original: ${migration.sourceFile}\n`;
+            }
+          }
+          
+        } catch (execError) {
+          errors.push(`Error executing migration for ${migration.project}/${migration.sourceFile}: ${execError.message}`);
+          output += `❌ Migration failed: ${execError.message}\n`;
+        }
+      }
+    }
+    
+    // Summary
+    output += `## 📊 Summary\n\n`;
+    output += `- Projects processed: ${projectsToMigrate.length}\n`;
+    output += `- Files analyzed: ${migrations.length}\n`;
+    output += `- Migrations planned: ${migrations.filter(m => m.action === 'migrate_to_project').length}\n`;
+    output += `- Files to keep as branch-specific: ${migrations.filter(m => m.action === 'keep_as_branch').length}\n`;
+    output += `- Errors encountered: ${errors.length}\n\n`;
+    
+    if (errors.length > 0) {
+      output += `## ❌ Errors\n\n`;
+      errors.forEach(error => {
+        output += `- ${error}\n`;
+      });
+      output += '\n';
+    }
+    
+    if (dryRun) {
+      output += `💡 **This was a dry run.** To execute migrations, run with \`dryRun: false\`.\n\n`;
+    }
+    
+    output += `---\n`;
+    output += `*Migration completed at ${new Date().toISOString()}*\n`;
+    
+    return output;
+    
+  } catch (error) {
+    throw new Error(`Migration failed: ${error.message}`);
+  }
 }
 
 /**
