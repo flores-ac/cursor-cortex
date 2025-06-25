@@ -345,13 +345,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'timeline_reconstruction',
-        description: 'Phase 2.2: Timeline Reconstruction Tool - Extracts chronological timeline data from branch notes and commit separators for reality sync analysis',
+        description: 'Phase 2.2: Timeline Reconstruction Tool - Extracts chronological timeline data from branch notes and commit separators for reality sync analysis. IMPORTANT: This tool analyzes ALL projects by default unless projectName is specified. Date filtering uses YYYY-MM-DD format and is inclusive. Returns comprehensive chronological timeline with both commits and branch note entries. Use dateRange parameter for specific time periods, omit for full timeline analysis.',
         inputSchema: {
           type: 'object',
           properties: {
-            projectName: { type: 'string', description: 'Name of the project to analyze (optional - if not provided, analyzes all projects)' },
-            branchName: { type: 'string', description: 'Specific branch to analyze (optional - if not provided, analyzes all branches)' },
-            dateRange: { type: 'string', description: 'Date range filter in format "YYYY-MM-DD,YYYY-MM-DD" (optional)' },
+            projectName: { type: 'string', description: 'Name of the project to analyze (optional - if not provided, analyzes all projects across entire knowledge base)' },
+            branchName: { type: 'string', description: 'Specific branch to analyze (optional - if not provided, analyzes all branches within specified or all projects)' },
+            dateRange: { type: 'string', description: 'Date range filter in format "YYYY-MM-DD,YYYY-MM-DD" (optional). Dates are inclusive. Example: "2025-06-24,2025-06-25" for 2-day range. Omit for all-time analysis.' },
             includeCommits: { type: 'boolean', description: 'Include commit separators in timeline (default: true)' },
             includeEntries: { type: 'boolean', description: 'Include branch note entries in timeline (default: true)' },
           },
@@ -3642,20 +3642,21 @@ async function reconstructTimeline(projectName, branchName, dateRange, includeCo
   const storageRoot = path.join(os.homedir(), '.cursor-cortex');
   const timelineEvents = [];
   
-  // Parse date range if provided (format: "YYYY-MM-DD,YYYY-MM-DD")
+    // Parse date range if provided (format: "YYYY-MM-DD,YYYY-MM-DD")
   let startDate = null;
   let endDate = null;
   if (dateRange) {
     const [start, end] = dateRange.split(',');
-    startDate = start ? new Date(start) : null;
-    endDate = end ? new Date(end) : null;
+    startDate = start ? new Date(start + 'T00:00:00') : null;
+    endDate = end ? new Date(end + 'T23:59:59') : null;
   }
-  
+
   // Helper function to check if date is in range
   const isInDateRange = (dateStr) => {
-    if (!startDate && !endDate) return true; // No range = all time
+    if (!startDate && !endDate) return true;
+    
     const eventDate = new Date(dateStr);
-    if (isNaN(eventDate)) return true; // Invalid date = include it
+    if (isNaN(eventDate)) return true;
     
     if (startDate && eventDate < startDate) return false;
     if (endDate && eventDate > endDate) return false;
@@ -3800,11 +3801,21 @@ async function getAllProjectsFromBranchNotes() {
   
   try {
     const projects = await fs.readdir(branchNotesRoot);
-    return projects.filter(async (proj) => {
-      const projPath = path.join(branchNotesRoot, proj);
-      const stat = await fs.stat(projPath);
-      return stat.isDirectory();
-    });
+    
+    const validProjects = await Promise.all(
+      projects.map(async (proj) => {
+        try {
+          const projPath = path.join(branchNotesRoot, proj);
+          const stat = await fs.stat(projPath);
+          return stat.isDirectory() ? proj : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    
+    return validProjects.filter(proj => proj !== null);
+    
   } catch (error) {
     console.error(`Error reading branch notes directory: ${error.message}`);
     return [];
