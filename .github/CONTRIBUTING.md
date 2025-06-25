@@ -139,9 +139,14 @@ By submitting a contribution, you:
 ## 🤝 Community
 
 ### Getting Help
-- Open an issue for bugs or questions
-- Check existing issues and documentation first
-- Be respectful and constructive in discussions
+- **GitHub Discussions** - Join community conversations, ask questions, and share ideas
+  - 💡 **Ideas & Feature Requests** - Suggest improvements to cursor-cortex
+  - ❓ **Q&A / Help** - Get help with usage and troubleshooting
+  - 📢 **Announcements** - Stay updated with project news
+  - 🛠️ **Show & Tell** - Share your workflows and use cases
+- **GitHub Issues** - Report bugs or request specific features
+- Check existing discussions/issues and documentation first
+- Be respectful and constructive in all interactions
 
 ### Recognition
 Contributors are recognized in:
