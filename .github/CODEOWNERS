@@ -1,0 +1,13 @@
+# CODEOWNERS for Cursor-Cortex
+# This file defines code ownership for the repository
+# All changes require approval from the repository owner
+
+# Global ownership - all files require review from @flores-ac
+* @flores-ac
+
+# Critical files that especially need protection
+/package.json @flores-ac
+/index.js @flores-ac
+/CHANGELOG.md @flores-ac
+/LICENSE @flores-ac
+/.github/ @flores-ac 
