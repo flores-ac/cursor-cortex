@@ -1,0 +1,16 @@
+{
+  "timestamp": "2025-08-08T22:24:10.528Z",
+  "fileSize": 182841,
+  "lineCount": 4995,
+  "fileReadTime": 0.9245000000000019,
+  "functionCountTime": 0.20329200000000114,
+  "totalFunctions": 87,
+  "memoryUsage": {
+    "rss": 36372480,
+    "heapTotal": 6455296,
+    "heapUsed": 5217624,
+    "external": 1958344,
+    "arrayBuffers": 197565
+  },
+  "totalTime": 2.0247090000000014
+}

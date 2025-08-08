@@ -403,6 +403,46 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['projectName'],
         },
       },
+      {
+        name: 'request_critical_thinking_space',
+        description: 'Create a new critical thinking analysis workspace using Six Thinking Hats methodology. This starts a multi-step systematic analysis process that enforces completion of all six perspectives before allowing final decisions. Returns an analysis ID for tracking progress.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            topic: { type: 'string', description: 'The topic, decision, or problem to analyze from multiple perspectives' },
+            projectName: { type: 'string', description: 'Name of the project for context' },
+            context: { type: 'string', description: 'Additional context or background information (optional)' },
+            analysisId: { type: 'string', description: 'Optional custom analysis ID (auto-generated if not provided)' },
+          },
+          required: ['topic', 'projectName'],
+        },
+      },
+      {
+        name: 'check_critical_thinking_status',
+        description: 'Check the completion status of a critical thinking analysis. Shows which Six Thinking Hats perspectives are complete and which are missing. Prevents rushed decisions by clearly showing incomplete analysis.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            analysisId: { type: 'string', description: 'The analysis ID to check status for' },
+            projectName: { type: 'string', description: 'Name of the project' },
+          },
+          required: ['analysisId', 'projectName'],
+        },
+      },
+      {
+        name: 'add_perspective',
+        description: 'Add a specific Six Thinking Hats perspective to an ongoing critical thinking analysis. Updates the semaphore and checks for completion. Perspectives: white (facts/data), red (emotions/intuition), black (caution/problems), yellow (benefits/optimism), green (creativity/alternatives), blue (process/next steps).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            analysisId: { type: 'string', description: 'The analysis ID to add perspective to' },
+            projectName: { type: 'string', description: 'Name of the project' },
+            perspective: { type: 'string', description: 'The thinking hat perspective', enum: ['white', 'red', 'black', 'yellow', 'green', 'blue'] },
+            analysis: { type: 'string', description: 'The detailed analysis for this perspective' },
+          },
+          required: ['analysisId', 'projectName', 'perspective', 'analysis'],
+        },
+      },
     ],
   };
 });
@@ -673,6 +713,97 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     //     throw error;
     //   }
     // }
+
+    // Generate final analysis when all perspectives are complete
+    async function generateFinalAnalysis(semaphore, analysisDir) {
+      try {
+        const perspectives = ['white', 'red', 'black', 'yellow', 'green', 'blue'];
+        let finalAnalysis = `# Critical Thinking Analysis: ${semaphore.topic}
+
+**Project:** ${semaphore.projectName}  
+**Analysis ID:** ${semaphore.analysisId}  
+**Created:** ${new Date(semaphore.createdAt).toLocaleString()}  
+**Completed:** ${new Date(semaphore.completedAt).toLocaleString()}
+
+## Topic
+${semaphore.topic}
+
+## Context
+${semaphore.context || 'No additional context provided.'}
+
+---
+
+# Six Thinking Hats Analysis
+
+`;
+
+        // Read and include each perspective
+        for (const perspective of perspectives) {
+          try {
+            const perspectiveFile = path.join(analysisDir, `${perspective}_hat.md`);
+            const content = await fs.readFile(perspectiveFile, 'utf8');
+            // Extract just the analysis section
+            const analysisSection = content.split('## Analysis')[1];
+            if (analysisSection) {
+              const hatEmojis = {
+                white: '🤍',
+                red: '❤️', 
+                black: '🖤',
+                yellow: '💛',
+                green: '💚',
+                blue: '💙'
+              };
+              const hatNames = {
+                white: 'White Hat - Facts & Data',
+                red: 'Red Hat - Emotions & Intuition',
+                black: 'Black Hat - Caution & Problems',
+                yellow: 'Yellow Hat - Benefits & Optimism', 
+                green: 'Green Hat - Creativity & Alternatives',
+                blue: 'Blue Hat - Process & Next Steps'
+              };
+              finalAnalysis += `## ${hatEmojis[perspective]} ${hatNames[perspective]}
+
+${analysisSection.split('---')[0].trim()}
+
+`;
+            }
+          } catch (error) {
+            console.error(`Error reading ${perspective} hat analysis:`, error.message);
+          }
+        }
+        
+        finalAnalysis += `---
+
+## Summary
+
+This comprehensive Six Thinking Hats analysis provides multiple perspectives on: "${semaphore.topic}"
+
+All required perspectives have been systematically documented:
+- 🤍 **Facts & Data** (White Hat)
+- ❤️ **Emotions & Intuition** (Red Hat)  
+- 🖤 **Caution & Problems** (Black Hat)
+- 💛 **Benefits & Optimism** (Yellow Hat)
+- 💚 **Creativity & Alternatives** (Green Hat)
+- 💙 **Process & Next Steps** (Blue Hat)
+
+**Decision makers can now proceed with confidence having considered all angles.**
+
+---
+*Generated by Cursor-Cortex Critical Thinking Analysis System*
+*Completed: ${new Date(semaphore.completedAt).toLocaleString()}*
+`;
+
+        return finalAnalysis;
+      } catch (error) {
+        console.error('Error generating final analysis:', error.message);
+        return `# Critical Thinking Analysis: ${semaphore.topic}
+
+**Error generating comprehensive analysis:** ${error.message}
+
+Please check individual perspective files in the analysis directory.
+`;
+      }
+    }
 
     // Get entries since last commit separator
     async function getEntriesSinceLastCommit(filePath) {
@@ -3094,6 +3225,358 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             {
               type: 'text',
               text: `Error migrating context files: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'request_critical_thinking_space') {
+      try {
+        const { topic, projectName, context = '', analysisId } = toolArgs;
+        
+        // Generate analysis ID if not provided
+        const id = analysisId || `${topic.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}`;
+        
+        console.error(`Creating critical thinking space: ${id} for project: ${projectName}`);
+        
+        // Create analysis directory structure
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, id);
+        await fs.mkdir(analysisDir, { recursive: true });
+        
+        // Create semaphore file
+        const semaphore = {
+          analysisId: id,
+          topic,
+          projectName,
+          context,
+          createdAt: new Date().toISOString(),
+          perspectives: {
+            white: { completed: false, completedAt: null },
+            red: { completed: false, completedAt: null },
+            black: { completed: false, completedAt: null },
+            yellow: { completed: false, completedAt: null },
+            green: { completed: false, completedAt: null },
+            blue: { completed: false, completedAt: null }
+          },
+          isComplete: false,
+          completedAt: null
+        };
+        
+        await fs.writeFile(
+          path.join(analysisDir, 'semaphore.json'),
+          JSON.stringify(semaphore, null, 2)
+        );
+        
+        // Create topic file
+        const topicContent = `# Critical Thinking Analysis: ${topic}
+
+**Project:** ${projectName}  
+**Analysis ID:** ${id}  
+**Created:** ${new Date().toISOString()}
+
+## Topic
+${topic}
+
+## Context
+${context || 'No additional context provided.'}
+
+## Six Thinking Hats Analysis
+
+This analysis requires completion of all six perspectives before final decision:
+
+- 🤍 **White Hat** - Facts, data, information
+- ❤️ **Red Hat** - Emotions, feelings, intuition  
+- 🖤 **Black Hat** - Caution, critical thinking, problems
+- 💛 **Yellow Hat** - Benefits, optimism, value
+- 💚 **Green Hat** - Creativity, alternatives, innovation
+- 💙 **Blue Hat** - Process, next steps, metacognition
+
+---
+*Use check_critical_thinking_status to see progress and add_perspective to contribute analysis.*
+`;
+        
+        await fs.writeFile(path.join(analysisDir, 'topic.md'), topicContent);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `🧠 Critical thinking space created!
+
+**Analysis ID:** ${id}  
+**Topic:** ${topic}  
+**Project:** ${projectName}
+
+📁 Workspace: ~/.cursor-cortex/critical_thinking/${projectName}/${id}/
+
+🎯 **Next Steps:**
+1. Use check_critical_thinking_status to see what perspectives are needed
+2. Use add_perspective to add each Six Thinking Hats analysis
+3. Complete all 6 perspectives for final analysis
+
+⚠️  **Analysis incomplete** - No perspectives added yet`,
+            },
+          ],
+        };
+      } catch (error) {
+        console.error(`Error creating critical thinking space: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error creating critical thinking space: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'check_critical_thinking_status') {
+      try {
+        const { analysisId, projectName } = toolArgs;
+        
+        console.error(`Checking critical thinking status for: ${analysisId}`);
+        
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
+        const semaphorePath = path.join(analysisDir, 'semaphore.json');
+        
+        try {
+          const semaphoreContent = await fs.readFile(semaphorePath, 'utf8');
+          const semaphore = JSON.parse(semaphoreContent);
+          
+          const perspectiveNames = {
+            white: '🤍 White Hat (Facts & Data)',
+            red: '❤️ Red Hat (Emotions & Intuition)', 
+            black: '🖤 Black Hat (Caution & Problems)',
+            yellow: '💛 Yellow Hat (Benefits & Optimism)',
+            green: '💚 Green Hat (Creativity & Alternatives)',
+            blue: '💙 Blue Hat (Process & Next Steps)'
+          };
+          
+          const completed = Object.entries(semaphore.perspectives)
+            .filter(([_, data]) => data.completed);
+          const missing = Object.entries(semaphore.perspectives)
+            .filter(([_, data]) => !data.completed);
+          
+          let statusReport = `🧠 **Critical Thinking Analysis Status**
+
+**Topic:** "${semaphore.topic}"  
+**Analysis ID:** ${analysisId}  
+**Project:** ${projectName}  
+**Created:** ${new Date(semaphore.createdAt).toLocaleString()}
+
+**Progress:** ${completed.length}/6 perspectives completed
+
+## ✅ Completed Perspectives:
+${completed.length > 0 ? 
+  completed.map(([perspective, data]) => 
+    `- ${perspectiveNames[perspective]} - ${new Date(data.completedAt).toLocaleString()}`
+  ).join('\n') : 
+  '(None completed yet)'}
+
+## ❌ Missing Perspectives:
+${missing.length > 0 ?
+  missing.map(([perspective]) => 
+    `- ${perspectiveNames[perspective]} - **REQUIRED**`
+  ).join('\n') :
+  '(All perspectives complete!)'}
+`;
+
+          if (semaphore.isComplete) {
+            statusReport += `\n\n🎉 **ANALYSIS COMPLETE!**  
+✅ All Six Thinking Hats perspectives documented  
+📄 Final analysis available in final_analysis.md  
+🎯 Ready for informed decision making!`;
+          } else {
+            statusReport += `\n\n⚠️  **Analysis incomplete** - ${missing.length} perspective${missing.length !== 1 ? 's' : ''} remaining  
+🚫 Final decision blocked until all hats complete  
+
+**Next:** Use add_perspective to complete missing analyses`;
+          }
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: statusReport,
+              },
+            ],
+          };
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Critical thinking analysis not found: ${analysisId} for project ${projectName}. Use request_critical_thinking_space to create it.`,
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+      } catch (error) {
+        console.error(`Error checking critical thinking status: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error checking critical thinking status: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'add_perspective') {
+      try {
+        const { analysisId, projectName, perspective, analysis } = toolArgs;
+        
+        console.error(`Adding ${perspective} hat perspective to analysis: ${analysisId}`);
+        
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
+        const semaphorePath = path.join(analysisDir, 'semaphore.json');
+        
+        // Validate perspective
+        const validPerspectives = ['white', 'red', 'black', 'yellow', 'green', 'blue'];
+        if (!validPerspectives.includes(perspective)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid perspective: ${perspective}. Must be one of: ${validPerspectives.join(', ')}`,
+              },
+            ],
+          };
+        }
+        
+        try {
+          // Read and update semaphore
+          const semaphoreContent = await fs.readFile(semaphorePath, 'utf8');
+          const semaphore = JSON.parse(semaphoreContent);
+          
+          // Check if perspective already completed
+          if (semaphore.perspectives[perspective].completed) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ ${perspective.toUpperCase()} Hat perspective already completed for this analysis. Each perspective can only be added once.`,
+                },
+              ],
+            };
+          }
+          
+          // Update semaphore
+          semaphore.perspectives[perspective] = {
+            completed: true,
+            completedAt: new Date().toISOString()
+          };
+          
+          // Check if all perspectives complete
+          const allComplete = Object.values(semaphore.perspectives).every(p => p.completed);
+          if (allComplete && !semaphore.isComplete) {
+            semaphore.isComplete = true;
+            semaphore.completedAt = new Date().toISOString();
+          }
+          
+          await fs.writeFile(semaphorePath, JSON.stringify(semaphore, null, 2));
+          
+          // Save perspective analysis
+          const perspectiveNames = {
+            white: 'White Hat - Facts & Data',
+            red: 'Red Hat - Emotions & Intuition',
+            black: 'Black Hat - Caution & Problems', 
+            yellow: 'Yellow Hat - Benefits & Optimism',
+            green: 'Green Hat - Creativity & Alternatives',
+            blue: 'Blue Hat - Process & Next Steps'
+          };
+          
+          const perspectiveContent = `# ${perspectiveNames[perspective]}
+
+**Analysis ID:** ${analysisId}  
+**Topic:** ${semaphore.topic}  
+**Added:** ${new Date().toISOString()}
+
+## Analysis
+
+${analysis}
+
+---
+*Part of Six Thinking Hats critical thinking analysis*
+`;
+          
+          await fs.writeFile(
+            path.join(analysisDir, `${perspective}_hat.md`),
+            perspectiveContent
+          );
+          
+          let result = `✅ **${perspective.toUpperCase()} Hat perspective added successfully!**
+
+**Topic:** ${semaphore.topic}  
+**Analysis ID:** ${analysisId}
+
+`;
+          
+          if (allComplete) {
+            // Generate final analysis when complete
+            const finalAnalysis = await generateFinalAnalysis(semaphore, analysisDir);
+            await fs.writeFile(path.join(analysisDir, 'final_analysis.md'), finalAnalysis);
+            
+            result += `🎉 **CRITICAL THINKING ANALYSIS COMPLETE!**
+
+All Six Thinking Hats perspectives have been documented:
+✅ White Hat (Facts & Data)  
+✅ Red Hat (Emotions & Intuition)  
+✅ Black Hat (Caution & Problems)  
+✅ Yellow Hat (Benefits & Optimism)  
+✅ Green Hat (Creativity & Alternatives)  
+✅ Blue Hat (Process & Next Steps)  
+
+📄 **Final comprehensive analysis generated**  
+🎯 **Ready for informed decision making!**`;
+          } else {
+            const remaining = Object.entries(semaphore.perspectives)
+              .filter(([_, data]) => !data.completed)
+              .map(([p]) => p)
+              .join(', ');
+            
+            result += `**Progress:** ${Object.values(semaphore.perspectives).filter(p => p.completed).length}/6 perspectives complete
+
+**Still needed:** ${remaining}  
+Use check_critical_thinking_status to see detailed progress.`;
+          }
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Critical thinking analysis not found: ${analysisId} for project ${projectName}. Use request_critical_thinking_space to create it.`,
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+      } catch (error) {
+        console.error(`Error adding perspective: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error adding perspective: ${error.message}`,
             },
           ],
         };
