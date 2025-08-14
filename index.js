@@ -9,6 +9,7 @@ import {
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { findSimilarDocuments, isModelAvailable } from './embeddings-cpu.js';
 
 // Initialize the server
 const server = new Server(
@@ -262,15 +263,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'read_tacit_knowledge',
-        description: 'Read tacit knowledge documents - use documentName for exact filename access or searchTerm for flexible content/title search',
+        description: 'Read tacit knowledge documents with optional semantic search - supports exact filename access, text search, or vector-based semantic search for concept retrieval',
         inputSchema: {
           type: 'object',
           properties: {
             projectName: { type: 'string', description: 'Name of the project' },
             documentName: { type: 'string', description: 'EXACT filename from list (use "list" first to see available filenames, e.g., "2025-06-23-My_Document.md")' },
-            searchTerm: { type: 'string', description: 'Flexible search across document titles and content (more forgiving than documentName)' },
+            searchTerm: { type: 'string', description: 'Search query - works with both text search and semantic search' },
             searchTags: { type: 'string', description: 'Tags to filter documents by (comma-separated)' },
-            crossProject: { type: 'boolean', description: 'Whether to search across all projects' }
+            crossProject: { type: 'boolean', description: 'Whether to search across all projects' },
+            semanticSearch: { type: 'boolean', description: 'Enable vector-based semantic search for concept-based retrieval (default: false)' },
+            similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic search results 0.0-1.0 (default: 0.4)' }
           },
           required: ['projectName']
         }
@@ -2005,7 +2008,15 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       }
     } else if (name === 'read_tacit_knowledge') {
       try {
-        const { projectName, documentName = 'list', searchTerm, searchTags, crossProject = true } = toolArgs;
+        const { 
+          projectName, 
+          documentName = 'list', 
+          searchTerm, 
+          searchTags, 
+          crossProject = true,
+          semanticSearch = false,
+          similarityThreshold = 0.4 
+        } = toolArgs;
         
         console.error(`Reading tacit knowledge documents for project "${projectName}"`);
         
@@ -2076,9 +2087,65 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           return [];
         }
         
-        // Search for documents matching search term and tags
-        async function searchKnowledgeDocs(projects, searchTerm, searchTags) {
+        // Enhanced search function with semantic search capability
+        async function searchKnowledgeDocs(projects, searchTerm, searchTags, useSemanticSearch = false, threshold = 0.4) {
           const results = [];
+          
+          // If semantic search is requested and we have a search term
+          if (useSemanticSearch && searchTerm && await isModelAvailable()) {
+            try {
+              console.log(`🧠 Using semantic search for: "${searchTerm}" (threshold: ${threshold})`);
+              
+              // Use vector search for semantic matching
+              const vectorResults = await findSimilarDocuments(
+                searchTerm,
+                projectName, 
+                threshold, 
+                10  // limit
+              );
+              
+              // Convert vector results to our expected format
+              for (const vectorResult of vectorResults) {
+                try {
+                  const docPath = path.join(getKnowledgeDir(projectName), `${vectorResult.document}.md`);
+                  const content = await fs.readFile(docPath, 'utf8');
+                  
+                  // Extract title and tags from content
+                  const titleMatch = content.match(/\*\*Title:\*\*\s*(.*?)\s*\n/);
+                  const title = titleMatch ? titleMatch[1] : vectorResult.document;
+                  const docTags = extractTags(content);
+                  
+                  // Apply tag filtering if specified
+                  const tags = searchTags ? searchTags.split(',').map(tag => tag.trim().toLowerCase()) : [];
+                  const matchesTags = !searchTags || tags.some(tag => docTags.includes(tag));
+                  
+                  if (matchesTags) {
+                    results.push({
+                      project: projectName,
+                      document: `${vectorResult.document}.md`,
+                      title,
+                      tags: docTags,
+                      path: docPath,
+                      similarity: vectorResult.similarity,
+                      vectorMatch: true
+                    });
+                  }
+                } catch (error) {
+                  console.error(`Error processing vector result: ${error.message}`);
+                }
+              }
+              
+              console.log(`✅ Semantic search found ${results.length} matches`);
+              return results;
+              
+            } catch (error) {
+              console.error(`❌ Semantic search failed: ${error.message}, falling back to text search`);
+              // Fall through to text search
+            }
+          }
+          
+          // Text-based search (original implementation + fallback)
+          console.log(`📝 Using text search for: "${searchTerm || 'all documents'}"`);
           
           // Parse search tags if provided
           const tags = searchTags ? searchTags.split(',').map(tag => tag.trim().toLowerCase()) : [];
@@ -2109,15 +2176,17 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                     document: doc,
                     title,
                     tags: docTags,
-                    path: docPath
+                    path: docPath,
+                    textMatch: true
                   });
                 }
               } catch {
-                // Directory doesn't exist, which will be handled in the read function
+                // Skip files that can't be read
               }
             }
           }
           
+          console.log(`✅ Text search found ${results.length} matches`);
           return results;
         }
         
@@ -2130,7 +2199,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           
           if (searchTerm || searchTags) {
             // Perform search across specified projects
-            const searchResults = await searchKnowledgeDocs(projects, searchTerm || '', searchTags || '');
+            const searchResults = await searchKnowledgeDocs(projects, searchTerm || '', searchTags || '', semanticSearch, similarityThreshold);
             
             if (searchResults.length === 0) {
               return {
@@ -2143,14 +2212,17 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
               };
             }
             
-            // Format search results
-            let resultContent = `# Knowledge Search Results\n\n`;
+            // Format search results with semantic scoring
+            const searchType = semanticSearch ? '🧠 Semantic' : '📝 Text';
+            let resultContent = `# ${searchType} Search Results\n\n`;
             resultContent += `Found ${searchResults.length} document(s) matching your criteria:\n\n`;
             
             resultContent += searchResults.map(result => {
               const relativePath = result.document;
               const tagsStr = result.tags.length > 0 ? ` [Tags: ${result.tags.join(', ')}]` : '';
-              return `- **${result.title}** (${result.project}/${relativePath})${tagsStr}`;
+              const similarityStr = result.similarity ? ` (${result.similarity}% similarity)` : '';
+              const matchTypeStr = result.vectorMatch ? ' 🧠' : result.textMatch ? ' 📝' : '';
+              return `- **${result.title}** (${result.project}/${relativePath})${tagsStr}${similarityStr}${matchTypeStr}`;
             }).join('\n');
             
             return {
