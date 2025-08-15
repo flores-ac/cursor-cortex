@@ -335,7 +335,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'enhanced_branch_survey',
-        description: 'Enhanced branch survey system for Knowledge Archaeology - provides comprehensive analysis of documentation across all branches with completeness scoring, relationship mapping, and production readiness assessment',
+        description: 'Semantic-first branch survey system for Knowledge Archaeology - provides comprehensive analysis using semantic search across all branches with completeness scoring, relationship mapping, and production readiness assessment. Uses AI-powered semantic understanding by default.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -343,8 +343,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             includeAnalysis: { type: 'boolean', description: 'Include detailed analysis and scoring (default: true)' },
             minCompletenessScore: { type: 'number', description: 'Minimum completeness score to include (0-100, default: 0)' },
             detectRelationships: { type: 'boolean', description: 'Detect cross-branch relationships (default: true)' },
+            semanticAnalysis: { type: 'boolean', description: 'Use semantic search for conceptual discovery (default: true)' },
+            similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic relationships (0.0-1.0, default: 0.4)' },
+            conceptualQuery: { type: 'string', description: 'Optional semantic query to focus analysis on specific concepts' },
           },
           required: [],
+        },
+      },
+      {
+        name: 'comprehensive_knowledge_search',
+        description: 'Global semantic-first search across ALL Cursor-Cortex knowledge including branch notes, tacit knowledge, archives, and context files. Provides unified discovery across entire knowledge base using AI-powered semantic understanding by default.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            searchTerm: { type: 'string', description: 'Search query - finds relevant content across all knowledge types' },
+            semanticSearch: { type: 'boolean', description: 'Use semantic search for concept-based retrieval (default: true)' },
+            similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic search results (0.0-1.0, default: 0.4)' },
+            includeArchives: { type: 'boolean', description: 'Include archived content in search (default: true)' },
+            maxResults: { type: 'number', description: 'Maximum number of results to return (default: 25)' },
+            fileTypes: { type: 'string', description: 'Filter by file types: "branch_notes", "tacit_knowledge", "context", "archives", or "all" (default: "all")' },
+            projectName: { type: 'string', description: 'Optional: limit search to specific project' },
+          },
+          required: ['searchTerm'],
         },
       },
       {
@@ -2630,14 +2650,33 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                 if (startDate && !content.includes(startDate.substring(0, 7))) continue;
               }
               
-              // For semantic search, we'd need to generate/use embeddings for branch notes
-              // For now, implement text-based search with enhanced relevance
-              if (content.toLowerCase().includes(searchTerm.toLowerCase())) {
+              // Check if we should use semantic or text search
+              let isMatch = false;
+              let similarity = 0;
+              let matchCount = 0;
+              
+              if (semanticSearch) {
+                try {
+                  const { generateEmbedding, calculateCosineSimilarity } = require('./embeddings-cpu.js');
+                  const queryEmbedding = await generateEmbedding(searchTerm);
+                  const contentEmbedding = await generateEmbedding(content.substring(0, 5000));
+                  similarity = calculateCosineSimilarity(queryEmbedding, contentEmbedding);
+                  isMatch = similarity >= similarityThreshold;
+                } catch (vectorError) {
+                  console.error(`Vector search failed for ${project}/${branch}, using text search:`, vectorError.message);
+                  isMatch = content.toLowerCase().includes(searchTerm.toLowerCase());
+                }
+              } else {
+                isMatch = content.toLowerCase().includes(searchTerm.toLowerCase());
+              }
+              
+              if (isMatch) {
                 // Extract relevant context around the search term
                 const lines = content.split('\n');
                 const matchingLines = lines.filter(line => 
                   line.toLowerCase().includes(searchTerm.toLowerCase())
                 );
+                matchCount = matchingLines.length;
                 
                 // Get first few matching entries with context
                 const context = matchingLines.slice(0, 3).map(line => {
@@ -2645,14 +2684,21 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                   return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
                 }).join(' | ');
                 
-                results.push({
+                const result = {
                   project,
                   branch,
                   type: 'branch-note',
                   context,
                   path: notePath,
-                  matchCount: matchingLines.length
-                });
+                  matchCount
+                };
+                
+                // Add similarity score if semantic search was used
+                if (semanticSearch && similarity > 0) {
+                  result.similarity = Math.round(similarity * 1000) / 10; // Convert to percentage
+                }
+                
+                results.push(result);
               }
             }
           } catch (error) {
@@ -2660,8 +2706,12 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           }
         }
         
-        // Sort by relevance (match count)
-        results.sort((a, b) => b.matchCount - a.matchCount);
+        // Sort by relevance - similarity for semantic search, match count for text search
+        if (semanticSearch && results.some(r => r.similarity)) {
+          results.sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
+        } else {
+          results.sort((a, b) => b.matchCount - a.matchCount);
+        }
         
         if (results.length === 0) {
           return {
@@ -2674,12 +2724,18 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           };
         }
         
-        // Format results
-        let output = `# 🔧 Branch Notes Search Results\n\nFound ${results.length} development note(s) matching "${searchTerm}":\n\n`;
+        // Format results with improved output
+        const searchMode = semanticSearch ? '🧠 Semantic-First (AI-powered concept discovery)' : '📝 Text-based (keyword matching)';
+        let output = `# 🔍 Branch Notes Search Results\n\n**Query**: "${searchTerm}"\n**Search Mode**: ${searchMode}\n\n## 📋 Results (${results.length})\n\n`;
         
-        results.forEach(result => {
-          output += `- **${result.branch}** (${result.project}) [${result.matchCount} matches] 🔧\n`;
-          output += `  ${result.context}\n\n`;
+        results.forEach((result, index) => {
+          const num = index + 1;
+          if (result.similarity) {
+            output += `**${num}. ${result.project}/${result.branch}** 🧠 (${result.similarity}% similarity)\n`;
+          } else {
+            output += `**${num}. ${result.project}/${result.branch}** 📝 (${result.matchCount} matches)\n`;
+          }
+          output += `\`\`\`\n${result.context}\n\`\`\`\n\n`;
         });
         
         return {
@@ -2949,11 +3005,37 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       }
     } else if (name === 'enhanced_branch_survey') {
       try {
-        const { currentProject, includeAnalysis = true, minCompletenessScore = 0, detectRelationships = true } = toolArgs;
+        const { 
+          currentProject, 
+          includeAnalysis = true, 
+          minCompletenessScore = 0, 
+          detectRelationships = true,
+          semanticAnalysis = true,
+          similarityThreshold = 0.4,
+          conceptualQuery 
+        } = toolArgs;
         const storageRoot = getStorageRoot();
         const branchNotesDir = path.join(storageRoot, 'branch_notes');
         
-        console.error('Running enhanced branch survey with knowledge archaeology...');
+        console.error(`Running enhanced branch survey with knowledge archaeology... (semantic: ${semanticAnalysis})`);
+        
+        // Import embeddings functions for semantic search
+        let semanticSearchEnabled = false;
+        let findSimilarDocuments = null;
+        let isModelAvailable = null;
+        
+        if (semanticAnalysis) {
+          try {
+            const embeddingsModule = await import('./embeddings-cpu.js');
+            findSimilarDocuments = embeddingsModule.findSimilarDocuments;
+            isModelAvailable = embeddingsModule.isModelAvailable;
+            semanticSearchEnabled = await isModelAvailable();
+            console.error(`Semantic search available: ${semanticSearchEnabled}`);
+          } catch (error) {
+            console.error(`Semantic search disabled: ${error.message}`);
+            semanticSearchEnabled = false;
+          }
+        }
         
         // Get all project directories
         let projectDirs = [];
@@ -3010,11 +3092,12 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           return 'Mixed';
         }
         
-        function detectRelationshipPatterns(content, branchName, projectName) {
+        async function detectRelationshipPatterns(content, branchName, projectName, semanticOptions = {}) {
           const relationships = [];
           const lowerContent = content.toLowerCase();
+          const { semanticSearchEnabled, findSimilarDocuments, similarityThreshold, conceptualQuery } = semanticOptions;
           
-          // Ticket pattern detection (CLIP-1234, JIRA-123, etc.)
+          // Traditional pattern detection (CLIP-1234, JIRA-123, etc.)
           const ticketMatches = content.match(/[A-Z]+-\d+/g) || [];
           ticketMatches.forEach(ticket => {
             relationships.push({
@@ -3036,10 +3119,51 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             }
           });
           
-          // Technology stack detection removed - was creating biased scoring
-          // based on specific tech keywords rather than actual quality
+          // 🧠 SEMANTIC RELATIONSHIP DETECTION
+          if (semanticSearchEnabled && findSimilarDocuments) {
+            try {
+              console.error(`🧠 Detecting semantic relationships for ${branchName}...`);
+              
+              // Use conceptual query or extract key concepts from content
+              const searchQuery = conceptualQuery || extractKeyConceptsFromContent(content);
+              
+              if (searchQuery) {
+                const similarDocs = await findSimilarDocuments(searchQuery, similarityThreshold);
+                
+                similarDocs.forEach(doc => {
+                  if (doc.similarity > similarityThreshold) {
+                    relationships.push({
+                      type: 'semantic_similarity',
+                      value: doc.filename,
+                      confidence: 'semantic',
+                      similarity: doc.similarity,
+                      concept: searchQuery.substring(0, 50) + '...'
+                    });
+                  }
+                });
+                
+                console.error(`Found ${similarDocs.length} semantic relationships for ${branchName}`);
+              }
+            } catch (error) {
+              console.error(`Semantic relationship detection failed for ${branchName}: ${error.message}`);
+            }
+          }
           
           return relationships;
+        }
+        
+        function extractKeyConceptsFromContent(content) {
+          // Extract meaningful concepts from branch note content
+          const lines = content.split('\n').filter(line => 
+            line.trim() && 
+            !line.startsWith('#') && 
+            !line.startsWith('---') &&
+            line.length > 10
+          );
+          
+          // Get first substantial line as concept
+          const conceptLine = lines.find(line => line.length > 20);
+          return conceptLine ? conceptLine.substring(0, 100) : null;
         }
         
         // Collect enhanced branch analysis
@@ -3078,7 +3202,13 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                 
                 const completenessScore = includeAnalysis ? calculateCompletenessScore(content) : 0;
                 const productionReadiness = includeAnalysis ? assessProductionReadiness(content) : 'Unknown';
-                const relationships = detectRelationships ? detectRelationshipPatterns(content, branchName, projectName) : [];
+                const relationships = detectRelationships ? 
+                  await detectRelationshipPatterns(content, branchName, projectName, {
+                    semanticSearchEnabled,
+                    findSimilarDocuments,
+                    similarityThreshold,
+                    conceptualQuery
+                  }) : [];
                 
                 // Skip if below minimum completeness score
                 if (completenessScore < minCompletenessScore) continue;
@@ -3118,7 +3248,9 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                   globalRelationships[key].branches.push({
                     project: projectName,
                     branch: branchName,
-                    confidence: rel.confidence
+                    confidence: rel.confidence,
+                    similarity: rel.similarity, // For semantic relationships
+                    concept: rel.concept        // For semantic relationships
                   });
                 });
                 
@@ -3144,6 +3276,17 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         
         // Build comprehensive response
         let response = '# 🔍 Enhanced Branch Survey - Knowledge Archaeology Report\n\n';
+        
+        // Show analysis mode
+        if (semanticSearchEnabled) {
+          response += '🧠 **Semantic-First Analysis** - AI-powered conceptual discovery enabled\n';
+        } else {
+          response += '📝 **Structural Analysis** - Pattern-based discovery (semantic search unavailable)\n';
+        }
+        if (conceptualQuery) {
+          response += `🎯 **Focused on concept**: "${conceptualQuery}"\n`;
+        }
+        response += '\n';
         
         // Executive Summary
         const totalBranches = branchAnalysis.length;
@@ -3186,6 +3329,30 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
               }
             });
             response += '\n';
+          }
+          
+          // 🧠 SEMANTIC RELATIONSHIPS
+          const semanticRels = Object.values(globalRelationships).filter(r => r.type === 'semantic_similarity');
+          if (semanticRels.length > 0) {
+            response += `### 🧠 Semantic Relationships (AI-Discovered)\n`;
+            const topSemanticRels = semanticRels
+              .filter(rel => rel.branches.length > 0)
+              .sort((a, b) => b.branches.length - a.branches.length)
+              .slice(0, 10); // Show top 10 semantic relationships
+            
+            topSemanticRels.forEach(rel => {
+              const branch = rel.branches[0]; // Get first branch for similarity info
+              const similarity = branch.similarity ? (branch.similarity * 100).toFixed(1) : 'N/A';
+              response += `- **${rel.value}** (${similarity}% similarity)\n`;
+              response += `  - Concept: ${branch.concept || 'Related content'}\n`;
+              response += `  - Found in: ${rel.branches.map(b => `${b.project}/${b.branch}`).join(', ')}\n`;
+            });
+            
+            if (semanticRels.length > 10) {
+              response += `- *...and ${semanticRels.length - 10} more semantic relationships*\n`;
+            }
+            
+            response += `\n💡 *Semantic relationships discovered using AI-powered concept analysis*\n\n`;
           }
           
           // Technology stack distribution removed - was based on biased keyword detection
@@ -3420,6 +3587,382 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           ],
         };
       }
+    } else if (name === 'comprehensive_knowledge_search') {
+      try {
+        const { 
+          searchTerm, 
+          semanticSearch = true, 
+          similarityThreshold = 0.4, 
+          includeArchives = true, 
+          maxResults = 25, 
+          fileTypes = 'all', 
+          projectName 
+        } = toolArgs;
+
+        // Initialize embeddings if semantic search enabled
+        let semanticSearchEnabled = false;
+        let findSimilarDocuments = null;
+        
+        if (semanticSearch) {
+          try {
+            const embeddingsModule = await import('./embeddings-cpu.js');
+            findSimilarDocuments = embeddingsModule.findSimilarDocuments;
+            semanticSearchEnabled = await embeddingsModule.isModelAvailable();
+          } catch (error) {
+            // Graceful fallback to text search
+            semanticSearchEnabled = false;
+          }
+        }
+
+        let response = `# 🔍 Comprehensive Knowledge Search\n\n`;
+        response += `**Query**: "${searchTerm}"\n`;
+        response += `**Search Mode**: ${semanticSearchEnabled ? '🧠 Semantic-First (AI-powered concept discovery)' : '📝 Text-based (keyword matching)'}\n`;
+        if (projectName) response += `**Project**: ${projectName}\n`;
+        response += `**File Types**: ${fileTypes}\n`;
+        response += `**Include Archives**: ${includeArchives}\n\n`;
+
+        const results = [];
+        const cortexDir = path.join(os.homedir(), '.cursor-cortex');
+
+        // Helper function to search using stored embeddings
+        async function searchWithStoredEmbeddings(projectKey, type, basePath) {
+          if (!semanticSearchEnabled || !findSimilarDocuments) return [];
+          
+          try {
+            const vectorResults = await findSimilarDocuments(
+              searchTerm,
+              projectKey,
+              similarityThreshold,
+              maxResults
+            );
+            
+            const semanticResults = [];
+            for (const vectorResult of vectorResults) {
+              try {
+                // Build path based on type
+                let docPath;
+                let displayProject = projectKey;
+                
+                if (type === 'Tacit Knowledge') {
+                  docPath = path.join(basePath, `${vectorResult.document}.md`);
+                } else if (type === 'Branch Note') {
+                  // Extract project from key: branch_notes_cursor-cortex -> cursor-cortex
+                  displayProject = projectKey.replace('branch_notes_', '');
+                  docPath = path.join(basePath, `${vectorResult.document}.md`);
+                } else if (type === 'Context File') {
+                  // Extract project from key: context_cursor-cortex -> cursor-cortex  
+                  displayProject = projectKey.replace('context_', '');
+                  docPath = path.join(basePath, `${vectorResult.document}.md`);
+                } else if (type === 'Archive') {
+                  docPath = path.join(basePath, `${vectorResult.document}.md`);
+                  displayProject = 'archives';
+                }
+                
+                if (docPath) {
+                  const content = await fs.readFile(docPath, 'utf8');
+                  const preview = content.split('\n').slice(0, 10).filter(line => line.trim()).join('\n').substring(0, 300);
+                  
+                  semanticResults.push({
+                    type,
+                    project: displayProject,
+                    file: `${vectorResult.document}.md`,
+                    path: docPath,
+                    preview: preview + (preview.length >= 300 ? '...' : ''),
+                    matchType: 'semantic',
+                    semanticScore: vectorResult.similarity,
+                    wordCount: content.split(/\s+/).length
+                  });
+                }
+              } catch (error) {
+                // Skip files that can't be read
+              }
+            }
+            
+            return semanticResults;
+          } catch (error) {
+            return [];
+          }
+        }
+
+        // Helper function for text search (fallback)
+        async function searchWithText(directory, filePattern, type) {
+          const textResults = [];
+          
+          try {
+            const files = await fs.readdir(directory, { withFileTypes: true });
+            
+            for (const file of files) {
+              const filePath = path.join(directory, file.name);
+              
+              if (file.isDirectory()) {
+                // Recursively search subdirectories (projects)
+                if (!projectName || file.name === projectName) {
+                  const subResults = await searchWithText(filePath, filePattern, type);
+                  textResults.push(...subResults);
+                }
+              } else if (file.isFile() && filePattern.test(file.name)) {
+                try {
+                  const content = await fs.readFile(filePath, 'utf8');
+                  const lowerContent = content.toLowerCase();
+                  const lowerQuery = searchTerm.toLowerCase();
+                  
+                  if (lowerContent.includes(lowerQuery)) {
+                    // Extract context around match
+                    const lines = content.split('\n');
+                    let matchLine = -1;
+                    
+                    // Find the line with the match
+                    for (let i = 0; i < lines.length; i++) {
+                      if (lines[i].toLowerCase().includes(lowerQuery)) {
+                        matchLine = i;
+                        break;
+                      }
+                    }
+                    
+                    // Extract context (5 lines before and after match)
+                    let contextLines = [];
+                    if (matchLine >= 0) {
+                      const start = Math.max(0, matchLine - 5);
+                      const end = Math.min(lines.length, matchLine + 6);
+                      contextLines = lines.slice(start, end);
+                    } else {
+                      contextLines = lines.slice(0, 10).filter(line => line.trim());
+                    }
+                    
+                    const preview = contextLines.join('\n').substring(0, 300);
+                    const projectMatch = filePath.match(/\.cursor-cortex[\/\\]([^\/\\]+)[\/\\]/);
+                    const detectedProject = projectMatch ? projectMatch[1] : 'unknown';
+                    
+                    textResults.push({
+                      type,
+                      project: detectedProject,
+                      file: file.name,
+                      path: filePath,
+                      preview: preview + (preview.length >= 300 ? '...' : ''),
+                      matchType: 'text',
+                      semanticScore: 0,
+                      wordCount: content.split(/\s+/).length
+                    });
+                  }
+                } catch (error) {
+                  // Skip files that can't be read
+                }
+              }
+            }
+          } catch (error) {
+            // Skip directories that can't be accessed
+          }
+          
+          return textResults;
+        }
+
+        // Search different file types with semantic-first approach
+        if (fileTypes === 'all' || fileTypes === 'tacit_knowledge') {
+          // Get projects to search for tacit knowledge
+          const knowledgeRoot = path.join(cortexDir, 'knowledge');
+          let projects = [];
+          
+          if (projectName) {
+            projects = [projectName];
+          } else {
+            try {
+              const dirs = await fs.readdir(knowledgeRoot);
+              projects = dirs.filter(dir => !dir.startsWith('.'));
+            } catch (error) {
+              projects = [];
+            }
+          }
+          
+          // Try semantic search first for each project
+          let semanticFound = false;
+          if (semanticSearchEnabled) {
+            for (const project of projects) {
+              const projectPath = path.join(knowledgeRoot, project);
+              const semanticResults = await searchWithStoredEmbeddings(project, 'Tacit Knowledge', projectPath);
+              if (semanticResults.length > 0) {
+                results.push(...semanticResults);
+                semanticFound = true;
+              }
+            }
+          }
+          
+          // If no semantic results, fall back to text search
+          if (!semanticFound) {
+            const textResults = await searchWithText(knowledgeRoot, /\.md$/, 'Tacit Knowledge');
+            results.push(...textResults);
+          }
+        }
+        
+        if (fileTypes === 'all' || fileTypes === 'branch_notes') {
+          const branchNotesRoot = path.join(cortexDir, 'branch_notes');
+          let projects = [];
+          
+          if (projectName) {
+            projects = [projectName];
+          } else {
+            try {
+              const dirs = await fs.readdir(branchNotesRoot);
+              projects = dirs.filter(dir => !dir.startsWith('.'));
+            } catch (error) {
+              projects = [];
+            }
+          }
+          
+          // Try semantic search first for each project
+          let semanticFound = false;
+          if (semanticSearchEnabled) {
+            for (const project of projects) {
+              const projectPath = path.join(branchNotesRoot, project);
+              const projectKey = `branch_notes_${project}`;
+              const semanticResults = await searchWithStoredEmbeddings(projectKey, 'Branch Note', projectPath);
+              if (semanticResults.length > 0) {
+                results.push(...semanticResults);
+                semanticFound = true;
+              }
+            }
+          }
+          
+          // If no semantic results, fall back to text search
+          if (!semanticFound) {
+            const textResults = await searchWithText(branchNotesRoot, /\.md$/, 'Branch Note');
+            results.push(...textResults);
+          }
+        }
+        
+        if (fileTypes === 'all' || fileTypes === 'context') {
+          const contextRoot = path.join(cortexDir, 'context');
+          let projects = [];
+          
+          if (projectName) {
+            projects = [projectName];
+          } else {
+            try {
+              const dirs = await fs.readdir(contextRoot);
+              projects = dirs.filter(dir => !dir.startsWith('.'));
+            } catch (error) {
+              projects = [];
+            }
+          }
+          
+          // Try semantic search first for each project
+          let semanticFound = false;
+          if (semanticSearchEnabled) {
+            for (const project of projects) {
+              const projectPath = path.join(contextRoot, project);
+              const projectKey = `context_${project}`;
+              const semanticResults = await searchWithStoredEmbeddings(projectKey, 'Context File', projectPath);
+              if (semanticResults.length > 0) {
+                results.push(...semanticResults);
+                semanticFound = true;
+              }
+            }
+          }
+          
+          // If no semantic results, fall back to text search
+          if (!semanticFound) {
+            const textResults = await searchWithText(contextRoot, /\.md$/, 'Context File');
+            results.push(...textResults);
+          }
+        }
+        
+        if ((fileTypes === 'all' || fileTypes === 'archives') && includeArchives) {
+          const archiveDir = path.join(cortexDir, 'archive');
+          
+          // Try semantic search first for archives
+          let semanticFound = false;
+          if (semanticSearchEnabled) {
+            const semanticResults = await searchWithStoredEmbeddings('archives', 'Archive', archiveDir);
+            if (semanticResults.length > 0) {
+              results.push(...semanticResults);
+              semanticFound = true;
+            }
+          }
+          
+          // If no semantic results, fall back to text search
+          if (!semanticFound) {
+            const textResults = await searchWithText(archiveDir, /\.md$/, 'Archive');
+            results.push(...textResults);
+          }
+        }
+
+        // Sort results by relevance (semantic score first, then text matches)
+        results.sort((a, b) => {
+          if (a.matchType === 'semantic' && b.matchType === 'semantic') {
+            return b.semanticScore - a.semanticScore;
+          }
+          if (a.matchType === 'semantic' && b.matchType === 'text') return -1;
+          if (a.matchType === 'text' && b.matchType === 'semantic') return 1;
+          return b.wordCount - a.wordCount; // Prefer more detailed content for text matches
+        });
+
+        // Limit results
+        const limitedResults = results.slice(0, maxResults);
+
+        if (limitedResults.length === 0) {
+          response += `❌ **No results found** for "${searchTerm}"\n\n`;
+          response += `💡 **Try:**\n`;
+          response += `- Different search terms or concepts\n`;
+          response += `- Lower similarity threshold (current: ${similarityThreshold})\n`;
+          response += `- Broader file type filter\n`;
+          response += `- Including archives if disabled\n`;
+        } else {
+          response += `## 📋 Results (${limitedResults.length}${results.length > maxResults ? ` of ${results.length}` : ''})\n\n`;
+          
+          // Group by type
+          const groupedResults = {};
+          limitedResults.forEach(result => {
+            if (!groupedResults[result.type]) groupedResults[result.type] = [];
+            groupedResults[result.type].push(result);
+          });
+
+          for (const [type, typeResults] of Object.entries(groupedResults)) {
+            response += `### ${getTypeIcon(type)} ${type}\n\n`;
+            
+            typeResults.forEach((result, index) => {
+              const matchIcon = result.matchType === 'semantic' ? '🧠' : '📝';
+              const scoreDisplay = result.matchType === 'semantic' ? ` (${(result.semanticScore * 100).toFixed(1)}% similarity)` : '';
+              
+              response += `**${index + 1}. ${result.project}/${result.file}** ${matchIcon}${scoreDisplay}\n`;
+              response += `\`\`\`\n${result.preview}\n\`\`\`\n\n`;
+            });
+          }
+
+          response += `## 📊 Search Summary\n\n`;
+          response += `- **Total Results**: ${results.length}\n`;
+          response += `- **Semantic Matches**: ${results.filter(r => r.matchType === 'semantic').length}\n`;
+          response += `- **Text Matches**: ${results.filter(r => r.matchType === 'text').length}\n`;
+          response += `- **Projects Covered**: ${new Set(results.map(r => r.project)).size}\n`;
+          response += `- **File Types**: ${Object.keys(groupedResults).join(', ')}\n\n`;
+
+          if (semanticSearchEnabled) {
+            response += `🧠 **Semantic search enabled** - Results ranked by conceptual relevance\n`;
+          } else {
+            response += `📝 **Text search mode** - Consider installing TensorFlow.js for semantic capabilities\n`;
+          }
+        }
+
+        function getTypeIcon(type) {
+          const icons = {
+            'Branch Note': '🌿',
+            'Tacit Knowledge': '🧠',
+            'Context File': '📋',
+            'Project Context': '🎯',
+            'Archive': '📦'
+          };
+          return icons[type] || '📄';
+        }
+
+        return {
+          content: [{ type: 'text', text: response }],
+        };
+
+      } catch (error) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: `❌ **Error during comprehensive knowledge search:**\n\n${error.message}` }],
+        };
+      }
+
     } else if (name === 'migrate_context_files') {
       try {
         const { 

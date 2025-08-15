@@ -7,6 +7,7 @@
  * Uses TensorFlow.js CPU backend to avoid ARM64 native binary compatibility issues.
  */
 
+// ES6 imports for compatibility with index.js
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-cpu';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
@@ -220,12 +221,14 @@ function getBackendInfo() {
   };
 }
 
+// ES6 exports for compatibility with index.js
 export {
   generateEmbedding,
   storeEmbedding,
   loadEmbedding,
   findSimilarDocuments,
   cosineSimilarity,
+  cosineSimilarity as calculateCosineSimilarity, // Alias for compatibility
   isModelAvailable,
   getBackendInfo,
   initializeModel
