@@ -9,6 +9,7 @@ import {
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { findSimilarDocuments, isModelAvailable } from './embeddings-cpu.js';
 
 // Initialize the server
 const server = new Server(
@@ -262,17 +263,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'read_tacit_knowledge',
-        description: 'Read tacit knowledge documents - use documentName for exact filename access or searchTerm for flexible content/title search',
+        description: 'Read tacit knowledge documents with optional semantic search - supports exact filename access, text search, or vector-based semantic search for concept retrieval',
         inputSchema: {
           type: 'object',
           properties: {
             projectName: { type: 'string', description: 'Name of the project' },
             documentName: { type: 'string', description: 'EXACT filename from list (use "list" first to see available filenames, e.g., "2025-06-23-My_Document.md")' },
-            searchTerm: { type: 'string', description: 'Flexible search across document titles and content (more forgiving than documentName)' },
+            searchTerm: { type: 'string', description: 'Search query - works with both text search and semantic search' },
             searchTags: { type: 'string', description: 'Tags to filter documents by (comma-separated)' },
-            crossProject: { type: 'boolean', description: 'Whether to search across all projects' }
+            crossProject: { type: 'boolean', description: 'Whether to search across all projects' },
+            semanticSearch: { type: 'boolean', description: 'Enable vector-based semantic search for concept-based retrieval (default: true)' },
+            similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic search results 0.0-1.0 (default: 0.4)' }
           },
           required: ['projectName']
+        }
+      },
+      {
+        name: 'search_branch_notes',
+        description: 'Search branch notes across projects with semantic search - find development insights, problem-solving journeys, and decision contexts',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectName: { type: 'string', description: 'Name of the project (or "all" to search across all projects)' },
+            searchTerm: { type: 'string', description: 'Search query - finds relevant development notes, debugging sessions, and decisions' },
+            branchName: { type: 'string', description: 'Optional: specific branch to search' },
+            semanticSearch: { type: 'boolean', description: 'Enable vector-based semantic search for concept-based retrieval (default: true)' },
+            similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic search results 0.0-1.0 (default: 0.4)' },
+            dateRange: { type: 'string', description: 'Optional date range filter (YYYY-MM-DD,YYYY-MM-DD)' }
+          },
+          required: ['searchTerm']
         }
       },
       {
@@ -316,7 +335,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'enhanced_branch_survey',
-        description: 'Enhanced branch survey system for Knowledge Archaeology - provides comprehensive analysis of documentation across all branches with completeness scoring, relationship mapping, and production readiness assessment',
+        description: 'Semantic-first branch survey system for Knowledge Archaeology - provides comprehensive analysis using semantic search across all branches with completeness scoring, relationship mapping, and production readiness assessment. Uses AI-powered semantic understanding by default.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -324,8 +343,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             includeAnalysis: { type: 'boolean', description: 'Include detailed analysis and scoring (default: true)' },
             minCompletenessScore: { type: 'number', description: 'Minimum completeness score to include (0-100, default: 0)' },
             detectRelationships: { type: 'boolean', description: 'Detect cross-branch relationships (default: true)' },
+            semanticAnalysis: { type: 'boolean', description: 'Use semantic search for conceptual discovery (default: true)' },
+            similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic relationships (0.0-1.0, default: 0.4)' },
+            conceptualQuery: { type: 'string', description: 'Optional semantic query to focus analysis on specific concepts' },
           },
           required: [],
+        },
+      },
+      {
+        name: 'comprehensive_knowledge_search',
+        description: 'Global semantic-first search across ALL Cursor-Cortex knowledge including branch notes, tacit knowledge, archives, and context files. Provides unified discovery across entire knowledge base using AI-powered semantic understanding by default.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            searchTerm: { type: 'string', description: 'Search query - finds relevant content across all knowledge types' },
+            semanticSearch: { type: 'boolean', description: 'Use semantic search for concept-based retrieval (default: true)' },
+            similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic search results (0.0-1.0, default: 0.4)' },
+            includeArchives: { type: 'boolean', description: 'Include archived content in search (default: true)' },
+            maxResults: { type: 'number', description: 'Maximum number of results to return (default: 25)' },
+            fileTypes: { type: 'string', description: 'Filter by file types: "branch_notes", "tacit_knowledge", "context", "archives", or "all" (default: "all")' },
+            projectName: { type: 'string', description: 'Optional: limit search to specific project' },
+          },
+          required: ['searchTerm'],
         },
       },
       {
@@ -401,6 +440,59 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             migrationStrategy: { type: 'string', description: 'Migration strategy: "main-to-project" (default), "custom"', enum: ['main-to-project', 'custom'] },
           },
           required: ['projectName'],
+        },
+      },
+      {
+        name: 'request_critical_thinking_space',
+        description: 'Create a new critical thinking analysis workspace using Six Thinking Hats methodology. This starts a multi-step systematic analysis process that enforces completion of all six perspectives before allowing final decisions. Returns an analysis ID for tracking progress.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            topic: { type: 'string', description: 'The topic, decision, or problem to analyze from multiple perspectives' },
+            projectName: { type: 'string', description: 'Name of the project for context' },
+            context: { type: 'string', description: 'Additional context or background information (optional)' },
+            analysisId: { type: 'string', description: 'Optional custom analysis ID (auto-generated if not provided)' },
+          },
+          required: ['topic', 'projectName'],
+        },
+      },
+      {
+        name: 'check_critical_thinking_status',
+        description: 'Check the completion status of a critical thinking analysis. Shows which Six Thinking Hats perspectives are complete and which are missing. Prevents rushed decisions by clearly showing incomplete analysis.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            analysisId: { type: 'string', description: 'The analysis ID to check status for' },
+            projectName: { type: 'string', description: 'Name of the project' },
+          },
+          required: ['analysisId', 'projectName'],
+        },
+      },
+      {
+        name: 'request_thinking_guidance',
+        description: 'Request Six Thinking Hats guidance for a specific perspective before analysis. Shows thinking prompts and questions to guide proper analysis approach. Must be called BEFORE add_perspective for that hat color.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            analysisId: { type: 'string', description: 'The analysis ID to request guidance for' },
+            projectName: { type: 'string', description: 'Name of the project' },
+            perspective: { type: 'string', description: 'The thinking hat perspective to get guidance for', enum: ['white', 'red', 'black', 'yellow', 'green', 'blue'] },
+          },
+          required: ['analysisId', 'projectName', 'perspective'],
+        },
+      },
+      {
+        name: 'add_perspective',
+        description: 'Add a specific Six Thinking Hats perspective analysis to critical thinking workspace. REQUIRES calling request_thinking_guidance first for this perspective - will fail if guidance not requested.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            analysisId: { type: 'string', description: 'The analysis ID to add perspective to' },
+            projectName: { type: 'string', description: 'Name of the project' },
+            perspective: { type: 'string', description: 'The thinking hat perspective', enum: ['white', 'red', 'black', 'yellow', 'green', 'blue'] },
+            analysis: { type: 'string', description: 'The detailed analysis for this perspective' },
+          },
+          required: ['analysisId', 'projectName', 'perspective', 'analysis'],
         },
       },
     ],
@@ -673,6 +765,97 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     //     throw error;
     //   }
     // }
+
+    // Generate final analysis when all perspectives are complete
+    async function generateFinalAnalysis(semaphore, analysisDir) {
+      try {
+        const perspectives = ['white', 'red', 'black', 'yellow', 'green', 'blue'];
+        let finalAnalysis = `# Critical Thinking Analysis: ${semaphore.topic}
+
+**Project:** ${semaphore.projectName}  
+**Analysis ID:** ${semaphore.analysisId}  
+**Created:** ${new Date(semaphore.createdAt).toLocaleString()}  
+**Completed:** ${new Date(semaphore.completedAt).toLocaleString()}
+
+## Topic
+${semaphore.topic}
+
+## Context
+${semaphore.context || 'No additional context provided.'}
+
+---
+
+# Six Thinking Hats Analysis
+
+`;
+
+        // Read and include each perspective
+        for (const perspective of perspectives) {
+          try {
+            const perspectiveFile = path.join(analysisDir, `${perspective}_hat.md`);
+            const content = await fs.readFile(perspectiveFile, 'utf8');
+            // Extract just the analysis section
+            const analysisSection = content.split('## Analysis')[1];
+            if (analysisSection) {
+              const hatEmojis = {
+                white: '🤍',
+                red: '❤️', 
+                black: '🖤',
+                yellow: '💛',
+                green: '💚',
+                blue: '💙'
+              };
+              const hatNames = {
+                white: 'White Hat - Facts & Data',
+                red: 'Red Hat - Emotions & Intuition',
+                black: 'Black Hat - Caution & Problems',
+                yellow: 'Yellow Hat - Benefits & Optimism', 
+                green: 'Green Hat - Creativity & Alternatives',
+                blue: 'Blue Hat - Process & Next Steps'
+              };
+              finalAnalysis += `## ${hatEmojis[perspective]} ${hatNames[perspective]}
+
+${analysisSection.split('---')[0].trim()}
+
+`;
+            }
+          } catch (error) {
+            console.error(`Error reading ${perspective} hat analysis:`, error.message);
+          }
+        }
+        
+        finalAnalysis += `---
+
+## Summary
+
+This comprehensive Six Thinking Hats analysis provides multiple perspectives on: "${semaphore.topic}"
+
+All required perspectives have been systematically documented:
+- 🤍 **Facts & Data** (White Hat)
+- ❤️ **Emotions & Intuition** (Red Hat)  
+- 🖤 **Caution & Problems** (Black Hat)
+- 💛 **Benefits & Optimism** (Yellow Hat)
+- 💚 **Creativity & Alternatives** (Green Hat)
+- 💙 **Process & Next Steps** (Blue Hat)
+
+**Decision makers can now proceed with confidence having considered all angles.**
+
+---
+*Generated by Cursor-Cortex Critical Thinking Analysis System*
+*Completed: ${new Date(semaphore.completedAt).toLocaleString()}*
+`;
+
+        return finalAnalysis;
+      } catch (error) {
+        console.error('Error generating final analysis:', error.message);
+        return `# Critical Thinking Analysis: ${semaphore.topic}
+
+**Error generating comprehensive analysis:** ${error.message}
+
+Please check individual perspective files in the analysis directory.
+`;
+      }
+    }
 
     // Get entries since last commit separator
     async function getEntriesSinceLastCommit(filePath) {
@@ -1874,7 +2057,15 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       }
     } else if (name === 'read_tacit_knowledge') {
       try {
-        const { projectName, documentName = 'list', searchTerm, searchTags, crossProject = true } = toolArgs;
+        const { 
+          projectName, 
+          documentName = 'list', 
+          searchTerm, 
+          searchTags, 
+          crossProject = true,
+          semanticSearch = true,
+          similarityThreshold = 0.4 
+        } = toolArgs;
         
         console.error(`Reading tacit knowledge documents for project "${projectName}"`);
         
@@ -1945,9 +2136,65 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           return [];
         }
         
-        // Search for documents matching search term and tags
-        async function searchKnowledgeDocs(projects, searchTerm, searchTags) {
+        // Enhanced search function with semantic search capability
+        async function searchKnowledgeDocs(projects, searchTerm, searchTags, useSemanticSearch = false, threshold = 0.4) {
           const results = [];
+          
+          // If semantic search is requested and we have a search term
+          if (useSemanticSearch && searchTerm && await isModelAvailable()) {
+            try {
+              console.log(`🧠 Using semantic search for: "${searchTerm}" (threshold: ${threshold})`);
+              
+              // Use vector search for semantic matching
+              const vectorResults = await findSimilarDocuments(
+                searchTerm,
+                projectName, 
+                threshold, 
+                10  // limit
+              );
+              
+              // Convert vector results to our expected format
+              for (const vectorResult of vectorResults) {
+                try {
+                  const docPath = path.join(getKnowledgeDir(projectName), `${vectorResult.document}.md`);
+                  const content = await fs.readFile(docPath, 'utf8');
+                  
+                  // Extract title and tags from content
+                  const titleMatch = content.match(/\*\*Title:\*\*\s*(.*?)\s*\n/);
+                  const title = titleMatch ? titleMatch[1] : vectorResult.document;
+                  const docTags = extractTags(content);
+                  
+                  // Apply tag filtering if specified
+                  const tags = searchTags ? searchTags.split(',').map(tag => tag.trim().toLowerCase()) : [];
+                  const matchesTags = !searchTags || tags.some(tag => docTags.includes(tag));
+                  
+                  if (matchesTags) {
+                    results.push({
+                      project: projectName,
+                      document: `${vectorResult.document}.md`,
+                      title,
+                      tags: docTags,
+                      path: docPath,
+                      similarity: vectorResult.similarity,
+                      vectorMatch: true
+                    });
+                  }
+                } catch (error) {
+                  console.error(`Error processing vector result: ${error.message}`);
+                }
+              }
+              
+              console.log(`✅ Semantic search found ${results.length} matches`);
+              return results;
+              
+            } catch (error) {
+              console.error(`❌ Semantic search failed: ${error.message}, falling back to text search`);
+              // Fall through to text search
+            }
+          }
+          
+          // Text-based search (original implementation + fallback)
+          console.log(`📝 Using text search for: "${searchTerm || 'all documents'}"`);
           
           // Parse search tags if provided
           const tags = searchTags ? searchTags.split(',').map(tag => tag.trim().toLowerCase()) : [];
@@ -1978,15 +2225,17 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                     document: doc,
                     title,
                     tags: docTags,
-                    path: docPath
+                    path: docPath,
+                    textMatch: true
                   });
                 }
               } catch {
-                // Directory doesn't exist, which will be handled in the read function
+                // Skip files that can't be read
               }
             }
           }
           
+          console.log(`✅ Text search found ${results.length} matches`);
           return results;
         }
         
@@ -1999,7 +2248,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           
           if (searchTerm || searchTags) {
             // Perform search across specified projects
-            const searchResults = await searchKnowledgeDocs(projects, searchTerm || '', searchTags || '');
+            const searchResults = await searchKnowledgeDocs(projects, searchTerm || '', searchTags || '', semanticSearch, similarityThreshold);
             
             if (searchResults.length === 0) {
               return {
@@ -2012,14 +2261,17 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
               };
             }
             
-            // Format search results
-            let resultContent = `# Knowledge Search Results\n\n`;
+            // Format search results with semantic scoring
+            const searchType = semanticSearch ? '🧠 Semantic' : '📝 Text';
+            let resultContent = `# ${searchType} Search Results\n\n`;
             resultContent += `Found ${searchResults.length} document(s) matching your criteria:\n\n`;
             
             resultContent += searchResults.map(result => {
               const relativePath = result.document;
               const tagsStr = result.tags.length > 0 ? ` [Tags: ${result.tags.join(', ')}]` : '';
-              return `- **${result.title}** (${result.project}/${relativePath})${tagsStr}`;
+              const similarityStr = result.similarity ? ` (${result.similarity}% similarity)` : '';
+              const matchTypeStr = result.vectorMatch ? ' 🧠' : result.textMatch ? ' 📝' : '';
+              return `- **${result.title}** (${result.project}/${relativePath})${tagsStr}${similarityStr}${matchTypeStr}`;
             }).join('\n');
             
             return {
@@ -2341,6 +2593,170 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           ],
         };
       }
+    } else if (name === 'search_branch_notes') {
+      try {
+        const { 
+          projectName = 'all',
+          searchTerm, 
+          branchName,
+          semanticSearch = true,
+          similarityThreshold = 0.4,
+          dateRange
+        } = toolArgs;
+        
+        console.error(`🔍 Searching branch notes for: "${searchTerm}"`);
+        
+        const results = [];
+        const storageRoot = path.join(os.homedir(), '.cursor-cortex');
+        const branchNotesDir = path.join(storageRoot, 'branch_notes');
+        
+        // Get projects to search
+        let projectsToSearch = [];
+        if (projectName === 'all') {
+          try {
+            const dirs = await fs.readdir(branchNotesDir);
+            projectsToSearch = dirs.filter(dir => !dir.startsWith('.'));
+          } catch (error) {
+            projectsToSearch = [];
+          }
+        } else {
+          projectsToSearch = [projectName];
+        }
+        
+        // Search through branch notes
+        for (const project of projectsToSearch) {
+          const projectBranchDir = path.join(branchNotesDir, project);
+          
+          try {
+            const branchFiles = await fs.readdir(projectBranchDir);
+            const noteFiles = branchFiles.filter(file => file.endsWith('.md'));
+            
+            for (const noteFile of noteFiles) {
+              // Skip if specific branch requested and doesn't match
+              if (branchName && !noteFile.includes(branchName)) {
+                continue;
+              }
+              
+              const notePath = path.join(projectBranchDir, noteFile);
+              const content = await fs.readFile(notePath, 'utf8');
+              
+              // Extract branch name from filename
+              const branch = noteFile.replace('.md', '');
+              
+              // Apply date range filter if specified
+              if (dateRange) {
+                const [startDate, endDate] = dateRange.split(',');
+                // Simple date filtering - could be enhanced
+                if (startDate && !content.includes(startDate.substring(0, 7))) continue;
+              }
+              
+              // Check if we should use semantic or text search
+              let isMatch = false;
+              let similarity = 0;
+              let matchCount = 0;
+              
+              if (semanticSearch) {
+                try {
+                  const { generateEmbedding, calculateCosineSimilarity } = require('./embeddings-cpu.js');
+                  const queryEmbedding = await generateEmbedding(searchTerm);
+                  const contentEmbedding = await generateEmbedding(content.substring(0, 5000));
+                  similarity = calculateCosineSimilarity(queryEmbedding, contentEmbedding);
+                  isMatch = similarity >= similarityThreshold;
+                } catch (vectorError) {
+                  console.error(`Vector search failed for ${project}/${branch}, using text search:`, vectorError.message);
+                  isMatch = content.toLowerCase().includes(searchTerm.toLowerCase());
+                }
+              } else {
+                isMatch = content.toLowerCase().includes(searchTerm.toLowerCase());
+              }
+              
+              if (isMatch) {
+                // Extract relevant context around the search term
+                const lines = content.split('\n');
+                const matchingLines = lines.filter(line => 
+                  line.toLowerCase().includes(searchTerm.toLowerCase())
+                );
+                matchCount = matchingLines.length;
+                
+                // Get first few matching entries with context
+                const context = matchingLines.slice(0, 3).map(line => {
+                  const trimmed = line.trim();
+                  return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
+                }).join(' | ');
+                
+                const result = {
+                  project,
+                  branch,
+                  type: 'branch-note',
+                  context,
+                  path: notePath,
+                  matchCount
+                };
+                
+                // Add similarity score if semantic search was used
+                if (semanticSearch && similarity > 0) {
+                  result.similarity = Math.round(similarity * 1000) / 10; // Convert to percentage
+                }
+                
+                results.push(result);
+              }
+            }
+          } catch (error) {
+            console.error(`Error searching project ${project}:`, error.message);
+          }
+        }
+        
+        // Sort by relevance - similarity for semantic search, match count for text search
+        if (semanticSearch && results.some(r => r.similarity)) {
+          results.sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
+        } else {
+          results.sort((a, b) => b.matchCount - a.matchCount);
+        }
+        
+        if (results.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No branch notes found matching "${searchTerm}"`,
+              },
+            ],
+          };
+        }
+        
+        // Format results with improved output
+        const searchMode = semanticSearch ? '🧠 Semantic-First (AI-powered concept discovery)' : '📝 Text-based (keyword matching)';
+        let output = `# 🔍 Branch Notes Search Results\n\n**Query**: "${searchTerm}"\n**Search Mode**: ${searchMode}\n\n## 📋 Results (${results.length})\n\n`;
+        
+        results.forEach((result, index) => {
+          const num = index + 1;
+          if (result.similarity) {
+            output += `**${num}. ${result.project}/${result.branch}** 🧠 (${result.similarity}% similarity)\n`;
+          } else {
+            output += `**${num}. ${result.project}/${result.branch}** 📝 (${result.matchCount} matches)\n`;
+          }
+          output += `\`\`\`\n${result.context}\n\`\`\`\n\n`;
+        });
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: output,
+            },
+          ],
+        };
+        
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error searching branch notes: ${error.message}`,
+            },
+          ],
+        };
+      }
     } else if (name === 'archive_branch_note') {
       try {
         const { branchName, projectName, archiveDate = new Date().toISOString().split('T')[0] } = toolArgs;
@@ -2589,11 +3005,37 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       }
     } else if (name === 'enhanced_branch_survey') {
       try {
-        const { currentProject, includeAnalysis = true, minCompletenessScore = 0, detectRelationships = true } = toolArgs;
+        const { 
+          currentProject, 
+          includeAnalysis = true, 
+          minCompletenessScore = 0, 
+          detectRelationships = true,
+          semanticAnalysis = true,
+          similarityThreshold = 0.4,
+          conceptualQuery 
+        } = toolArgs;
         const storageRoot = getStorageRoot();
         const branchNotesDir = path.join(storageRoot, 'branch_notes');
         
-        console.error('Running enhanced branch survey with knowledge archaeology...');
+        console.error(`Running enhanced branch survey with knowledge archaeology... (semantic: ${semanticAnalysis})`);
+        
+        // Import embeddings functions for semantic search
+        let semanticSearchEnabled = false;
+        let findSimilarDocuments = null;
+        let isModelAvailable = null;
+        
+        if (semanticAnalysis) {
+          try {
+            const embeddingsModule = await import('./embeddings-cpu.js');
+            findSimilarDocuments = embeddingsModule.findSimilarDocuments;
+            isModelAvailable = embeddingsModule.isModelAvailable;
+            semanticSearchEnabled = await isModelAvailable();
+            console.error(`Semantic search available: ${semanticSearchEnabled}`);
+          } catch (error) {
+            console.error(`Semantic search disabled: ${error.message}`);
+            semanticSearchEnabled = false;
+          }
+        }
         
         // Get all project directories
         let projectDirs = [];
@@ -2650,11 +3092,12 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           return 'Mixed';
         }
         
-        function detectRelationshipPatterns(content, branchName, projectName) {
+        async function detectRelationshipPatterns(content, branchName, projectName, semanticOptions = {}) {
           const relationships = [];
           const lowerContent = content.toLowerCase();
+          const { semanticSearchEnabled, findSimilarDocuments, similarityThreshold, conceptualQuery } = semanticOptions;
           
-          // Ticket pattern detection (CLIP-1234, JIRA-123, etc.)
+          // Traditional pattern detection (CLIP-1234, JIRA-123, etc.)
           const ticketMatches = content.match(/[A-Z]+-\d+/g) || [];
           ticketMatches.forEach(ticket => {
             relationships.push({
@@ -2676,10 +3119,51 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             }
           });
           
-          // Technology stack detection removed - was creating biased scoring
-          // based on specific tech keywords rather than actual quality
+          // 🧠 SEMANTIC RELATIONSHIP DETECTION
+          if (semanticSearchEnabled && findSimilarDocuments) {
+            try {
+              console.error(`🧠 Detecting semantic relationships for ${branchName}...`);
+              
+              // Use conceptual query or extract key concepts from content
+              const searchQuery = conceptualQuery || extractKeyConceptsFromContent(content);
+              
+              if (searchQuery) {
+                const similarDocs = await findSimilarDocuments(searchQuery, similarityThreshold);
+                
+                similarDocs.forEach(doc => {
+                  if (doc.similarity > similarityThreshold) {
+                    relationships.push({
+                      type: 'semantic_similarity',
+                      value: doc.filename,
+                      confidence: 'semantic',
+                      similarity: doc.similarity,
+                      concept: searchQuery.substring(0, 50) + '...'
+                    });
+                  }
+                });
+                
+                console.error(`Found ${similarDocs.length} semantic relationships for ${branchName}`);
+              }
+            } catch (error) {
+              console.error(`Semantic relationship detection failed for ${branchName}: ${error.message}`);
+            }
+          }
           
           return relationships;
+        }
+        
+        function extractKeyConceptsFromContent(content) {
+          // Extract meaningful concepts from branch note content
+          const lines = content.split('\n').filter(line => 
+            line.trim() && 
+            !line.startsWith('#') && 
+            !line.startsWith('---') &&
+            line.length > 10
+          );
+          
+          // Get first substantial line as concept
+          const conceptLine = lines.find(line => line.length > 20);
+          return conceptLine ? conceptLine.substring(0, 100) : null;
         }
         
         // Collect enhanced branch analysis
@@ -2718,7 +3202,13 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                 
                 const completenessScore = includeAnalysis ? calculateCompletenessScore(content) : 0;
                 const productionReadiness = includeAnalysis ? assessProductionReadiness(content) : 'Unknown';
-                const relationships = detectRelationships ? detectRelationshipPatterns(content, branchName, projectName) : [];
+                const relationships = detectRelationships ? 
+                  await detectRelationshipPatterns(content, branchName, projectName, {
+                    semanticSearchEnabled,
+                    findSimilarDocuments,
+                    similarityThreshold,
+                    conceptualQuery
+                  }) : [];
                 
                 // Skip if below minimum completeness score
                 if (completenessScore < minCompletenessScore) continue;
@@ -2758,7 +3248,9 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                   globalRelationships[key].branches.push({
                     project: projectName,
                     branch: branchName,
-                    confidence: rel.confidence
+                    confidence: rel.confidence,
+                    similarity: rel.similarity, // For semantic relationships
+                    concept: rel.concept        // For semantic relationships
                   });
                 });
                 
@@ -2784,6 +3276,17 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         
         // Build comprehensive response
         let response = '# 🔍 Enhanced Branch Survey - Knowledge Archaeology Report\n\n';
+        
+        // Show analysis mode
+        if (semanticSearchEnabled) {
+          response += '🧠 **Semantic-First Analysis** - AI-powered conceptual discovery enabled\n';
+        } else {
+          response += '📝 **Structural Analysis** - Pattern-based discovery (semantic search unavailable)\n';
+        }
+        if (conceptualQuery) {
+          response += `🎯 **Focused on concept**: "${conceptualQuery}"\n`;
+        }
+        response += '\n';
         
         // Executive Summary
         const totalBranches = branchAnalysis.length;
@@ -2826,6 +3329,30 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
               }
             });
             response += '\n';
+          }
+          
+          // 🧠 SEMANTIC RELATIONSHIPS
+          const semanticRels = Object.values(globalRelationships).filter(r => r.type === 'semantic_similarity');
+          if (semanticRels.length > 0) {
+            response += `### 🧠 Semantic Relationships (AI-Discovered)\n`;
+            const topSemanticRels = semanticRels
+              .filter(rel => rel.branches.length > 0)
+              .sort((a, b) => b.branches.length - a.branches.length)
+              .slice(0, 10); // Show top 10 semantic relationships
+            
+            topSemanticRels.forEach(rel => {
+              const branch = rel.branches[0]; // Get first branch for similarity info
+              const similarity = branch.similarity ? (branch.similarity * 100).toFixed(1) : 'N/A';
+              response += `- **${rel.value}** (${similarity}% similarity)\n`;
+              response += `  - Concept: ${branch.concept || 'Related content'}\n`;
+              response += `  - Found in: ${rel.branches.map(b => `${b.project}/${b.branch}`).join(', ')}\n`;
+            });
+            
+            if (semanticRels.length > 10) {
+              response += `- *...and ${semanticRels.length - 10} more semantic relationships*\n`;
+            }
+            
+            response += `\n💡 *Semantic relationships discovered using AI-powered concept analysis*\n\n`;
           }
           
           // Technology stack distribution removed - was based on biased keyword detection
@@ -3060,6 +3587,382 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           ],
         };
       }
+    } else if (name === 'comprehensive_knowledge_search') {
+      try {
+        const { 
+          searchTerm, 
+          semanticSearch = true, 
+          similarityThreshold = 0.4, 
+          includeArchives = true, 
+          maxResults = 25, 
+          fileTypes = 'all', 
+          projectName 
+        } = toolArgs;
+
+        // Initialize embeddings if semantic search enabled
+        let semanticSearchEnabled = false;
+        let findSimilarDocuments = null;
+        
+        if (semanticSearch) {
+          try {
+            const embeddingsModule = await import('./embeddings-cpu.js');
+            findSimilarDocuments = embeddingsModule.findSimilarDocuments;
+            semanticSearchEnabled = await embeddingsModule.isModelAvailable();
+          } catch (error) {
+            // Graceful fallback to text search
+            semanticSearchEnabled = false;
+          }
+        }
+
+        let response = `# 🔍 Comprehensive Knowledge Search\n\n`;
+        response += `**Query**: "${searchTerm}"\n`;
+        response += `**Search Mode**: ${semanticSearchEnabled ? '🧠 Semantic-First (AI-powered concept discovery)' : '📝 Text-based (keyword matching)'}\n`;
+        if (projectName) response += `**Project**: ${projectName}\n`;
+        response += `**File Types**: ${fileTypes}\n`;
+        response += `**Include Archives**: ${includeArchives}\n\n`;
+
+        const results = [];
+        const cortexDir = path.join(os.homedir(), '.cursor-cortex');
+
+        // Helper function to search using stored embeddings
+        async function searchWithStoredEmbeddings(projectKey, type, basePath) {
+          if (!semanticSearchEnabled || !findSimilarDocuments) return [];
+          
+          try {
+            const vectorResults = await findSimilarDocuments(
+              searchTerm,
+              projectKey,
+              similarityThreshold,
+              maxResults
+            );
+            
+            const semanticResults = [];
+            for (const vectorResult of vectorResults) {
+              try {
+                // Build path based on type
+                let docPath;
+                let displayProject = projectKey;
+                
+                if (type === 'Tacit Knowledge') {
+                  docPath = path.join(basePath, `${vectorResult.document}.md`);
+                } else if (type === 'Branch Note') {
+                  // Extract project from key: branch_notes_cursor-cortex -> cursor-cortex
+                  displayProject = projectKey.replace('branch_notes_', '');
+                  docPath = path.join(basePath, `${vectorResult.document}.md`);
+                } else if (type === 'Context File') {
+                  // Extract project from key: context_cursor-cortex -> cursor-cortex  
+                  displayProject = projectKey.replace('context_', '');
+                  docPath = path.join(basePath, `${vectorResult.document}.md`);
+                } else if (type === 'Archive') {
+                  docPath = path.join(basePath, `${vectorResult.document}.md`);
+                  displayProject = 'archives';
+                }
+                
+                if (docPath) {
+                  const content = await fs.readFile(docPath, 'utf8');
+                  const preview = content.split('\n').slice(0, 10).filter(line => line.trim()).join('\n').substring(0, 300);
+                  
+                  semanticResults.push({
+                    type,
+                    project: displayProject,
+                    file: `${vectorResult.document}.md`,
+                    path: docPath,
+                    preview: preview + (preview.length >= 300 ? '...' : ''),
+                    matchType: 'semantic',
+                    semanticScore: vectorResult.similarity,
+                    wordCount: content.split(/\s+/).length
+                  });
+                }
+              } catch (error) {
+                // Skip files that can't be read
+              }
+            }
+            
+            return semanticResults;
+          } catch (error) {
+            return [];
+          }
+        }
+
+        // Helper function for text search (fallback)
+        async function searchWithText(directory, filePattern, type) {
+          const textResults = [];
+          
+          try {
+            const files = await fs.readdir(directory, { withFileTypes: true });
+            
+            for (const file of files) {
+              const filePath = path.join(directory, file.name);
+              
+              if (file.isDirectory()) {
+                // Recursively search subdirectories (projects)
+                if (!projectName || file.name === projectName) {
+                  const subResults = await searchWithText(filePath, filePattern, type);
+                  textResults.push(...subResults);
+                }
+              } else if (file.isFile() && filePattern.test(file.name)) {
+                try {
+                  const content = await fs.readFile(filePath, 'utf8');
+                  const lowerContent = content.toLowerCase();
+                  const lowerQuery = searchTerm.toLowerCase();
+                  
+                  if (lowerContent.includes(lowerQuery)) {
+                    // Extract context around match
+                    const lines = content.split('\n');
+                    let matchLine = -1;
+                    
+                    // Find the line with the match
+                    for (let i = 0; i < lines.length; i++) {
+                      if (lines[i].toLowerCase().includes(lowerQuery)) {
+                        matchLine = i;
+                        break;
+                      }
+                    }
+                    
+                    // Extract context (5 lines before and after match)
+                    let contextLines = [];
+                    if (matchLine >= 0) {
+                      const start = Math.max(0, matchLine - 5);
+                      const end = Math.min(lines.length, matchLine + 6);
+                      contextLines = lines.slice(start, end);
+                    } else {
+                      contextLines = lines.slice(0, 10).filter(line => line.trim());
+                    }
+                    
+                    const preview = contextLines.join('\n').substring(0, 300);
+                    const projectMatch = filePath.match(/\.cursor-cortex[\/\\]([^\/\\]+)[\/\\]/);
+                    const detectedProject = projectMatch ? projectMatch[1] : 'unknown';
+                    
+                    textResults.push({
+                      type,
+                      project: detectedProject,
+                      file: file.name,
+                      path: filePath,
+                      preview: preview + (preview.length >= 300 ? '...' : ''),
+                      matchType: 'text',
+                      semanticScore: 0,
+                      wordCount: content.split(/\s+/).length
+                    });
+                  }
+                } catch (error) {
+                  // Skip files that can't be read
+                }
+              }
+            }
+          } catch (error) {
+            // Skip directories that can't be accessed
+          }
+          
+          return textResults;
+        }
+
+        // Search different file types with semantic-first approach
+        if (fileTypes === 'all' || fileTypes === 'tacit_knowledge') {
+          // Get projects to search for tacit knowledge
+          const knowledgeRoot = path.join(cortexDir, 'knowledge');
+          let projects = [];
+          
+          if (projectName) {
+            projects = [projectName];
+          } else {
+            try {
+              const dirs = await fs.readdir(knowledgeRoot);
+              projects = dirs.filter(dir => !dir.startsWith('.'));
+            } catch (error) {
+              projects = [];
+            }
+          }
+          
+          // Try semantic search first for each project
+          let semanticFound = false;
+          if (semanticSearchEnabled) {
+            for (const project of projects) {
+              const projectPath = path.join(knowledgeRoot, project);
+              const semanticResults = await searchWithStoredEmbeddings(project, 'Tacit Knowledge', projectPath);
+              if (semanticResults.length > 0) {
+                results.push(...semanticResults);
+                semanticFound = true;
+              }
+            }
+          }
+          
+          // If no semantic results, fall back to text search
+          if (!semanticFound) {
+            const textResults = await searchWithText(knowledgeRoot, /\.md$/, 'Tacit Knowledge');
+            results.push(...textResults);
+          }
+        }
+        
+        if (fileTypes === 'all' || fileTypes === 'branch_notes') {
+          const branchNotesRoot = path.join(cortexDir, 'branch_notes');
+          let projects = [];
+          
+          if (projectName) {
+            projects = [projectName];
+          } else {
+            try {
+              const dirs = await fs.readdir(branchNotesRoot);
+              projects = dirs.filter(dir => !dir.startsWith('.'));
+            } catch (error) {
+              projects = [];
+            }
+          }
+          
+          // Try semantic search first for each project
+          let semanticFound = false;
+          if (semanticSearchEnabled) {
+            for (const project of projects) {
+              const projectPath = path.join(branchNotesRoot, project);
+              const projectKey = `branch_notes_${project}`;
+              const semanticResults = await searchWithStoredEmbeddings(projectKey, 'Branch Note', projectPath);
+              if (semanticResults.length > 0) {
+                results.push(...semanticResults);
+                semanticFound = true;
+              }
+            }
+          }
+          
+          // If no semantic results, fall back to text search
+          if (!semanticFound) {
+            const textResults = await searchWithText(branchNotesRoot, /\.md$/, 'Branch Note');
+            results.push(...textResults);
+          }
+        }
+        
+        if (fileTypes === 'all' || fileTypes === 'context') {
+          const contextRoot = path.join(cortexDir, 'context');
+          let projects = [];
+          
+          if (projectName) {
+            projects = [projectName];
+          } else {
+            try {
+              const dirs = await fs.readdir(contextRoot);
+              projects = dirs.filter(dir => !dir.startsWith('.'));
+            } catch (error) {
+              projects = [];
+            }
+          }
+          
+          // Try semantic search first for each project
+          let semanticFound = false;
+          if (semanticSearchEnabled) {
+            for (const project of projects) {
+              const projectPath = path.join(contextRoot, project);
+              const projectKey = `context_${project}`;
+              const semanticResults = await searchWithStoredEmbeddings(projectKey, 'Context File', projectPath);
+              if (semanticResults.length > 0) {
+                results.push(...semanticResults);
+                semanticFound = true;
+              }
+            }
+          }
+          
+          // If no semantic results, fall back to text search
+          if (!semanticFound) {
+            const textResults = await searchWithText(contextRoot, /\.md$/, 'Context File');
+            results.push(...textResults);
+          }
+        }
+        
+        if ((fileTypes === 'all' || fileTypes === 'archives') && includeArchives) {
+          const archiveDir = path.join(cortexDir, 'archive');
+          
+          // Try semantic search first for archives
+          let semanticFound = false;
+          if (semanticSearchEnabled) {
+            const semanticResults = await searchWithStoredEmbeddings('archives', 'Archive', archiveDir);
+            if (semanticResults.length > 0) {
+              results.push(...semanticResults);
+              semanticFound = true;
+            }
+          }
+          
+          // If no semantic results, fall back to text search
+          if (!semanticFound) {
+            const textResults = await searchWithText(archiveDir, /\.md$/, 'Archive');
+            results.push(...textResults);
+          }
+        }
+
+        // Sort results by relevance (semantic score first, then text matches)
+        results.sort((a, b) => {
+          if (a.matchType === 'semantic' && b.matchType === 'semantic') {
+            return b.semanticScore - a.semanticScore;
+          }
+          if (a.matchType === 'semantic' && b.matchType === 'text') return -1;
+          if (a.matchType === 'text' && b.matchType === 'semantic') return 1;
+          return b.wordCount - a.wordCount; // Prefer more detailed content for text matches
+        });
+
+        // Limit results
+        const limitedResults = results.slice(0, maxResults);
+
+        if (limitedResults.length === 0) {
+          response += `❌ **No results found** for "${searchTerm}"\n\n`;
+          response += `💡 **Try:**\n`;
+          response += `- Different search terms or concepts\n`;
+          response += `- Lower similarity threshold (current: ${similarityThreshold})\n`;
+          response += `- Broader file type filter\n`;
+          response += `- Including archives if disabled\n`;
+        } else {
+          response += `## 📋 Results (${limitedResults.length}${results.length > maxResults ? ` of ${results.length}` : ''})\n\n`;
+          
+          // Group by type
+          const groupedResults = {};
+          limitedResults.forEach(result => {
+            if (!groupedResults[result.type]) groupedResults[result.type] = [];
+            groupedResults[result.type].push(result);
+          });
+
+          for (const [type, typeResults] of Object.entries(groupedResults)) {
+            response += `### ${getTypeIcon(type)} ${type}\n\n`;
+            
+            typeResults.forEach((result, index) => {
+              const matchIcon = result.matchType === 'semantic' ? '🧠' : '📝';
+              const scoreDisplay = result.matchType === 'semantic' ? ` (${(result.semanticScore * 100).toFixed(1)}% similarity)` : '';
+              
+              response += `**${index + 1}. ${result.project}/${result.file}** ${matchIcon}${scoreDisplay}\n`;
+              response += `\`\`\`\n${result.preview}\n\`\`\`\n\n`;
+            });
+          }
+
+          response += `## 📊 Search Summary\n\n`;
+          response += `- **Total Results**: ${results.length}\n`;
+          response += `- **Semantic Matches**: ${results.filter(r => r.matchType === 'semantic').length}\n`;
+          response += `- **Text Matches**: ${results.filter(r => r.matchType === 'text').length}\n`;
+          response += `- **Projects Covered**: ${new Set(results.map(r => r.project)).size}\n`;
+          response += `- **File Types**: ${Object.keys(groupedResults).join(', ')}\n\n`;
+
+          if (semanticSearchEnabled) {
+            response += `🧠 **Semantic search enabled** - Results ranked by conceptual relevance\n`;
+          } else {
+            response += `📝 **Text search mode** - Consider installing TensorFlow.js for semantic capabilities\n`;
+          }
+        }
+
+        function getTypeIcon(type) {
+          const icons = {
+            'Branch Note': '🌿',
+            'Tacit Knowledge': '🧠',
+            'Context File': '📋',
+            'Project Context': '🎯',
+            'Archive': '📦'
+          };
+          return icons[type] || '📄';
+        }
+
+        return {
+          content: [{ type: 'text', text: response }],
+        };
+
+      } catch (error) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: `❌ **Error during comprehensive knowledge search:**\n\n${error.message}` }],
+        };
+      }
+
     } else if (name === 'migrate_context_files') {
       try {
         const { 
@@ -3094,6 +3997,524 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             {
               type: 'text',
               text: `Error migrating context files: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'request_critical_thinking_space') {
+      try {
+        const { topic, projectName, context = '', analysisId } = toolArgs;
+        
+        // Generate analysis ID if not provided
+        const id = analysisId || `${topic.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}`;
+        
+        console.error(`Creating critical thinking space: ${id} for project: ${projectName}`);
+        
+        // Create analysis directory structure
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, id);
+        await fs.mkdir(analysisDir, { recursive: true });
+        
+        // Create semaphore file
+        const semaphore = {
+          analysisId: id,
+          topic,
+          projectName,
+          context,
+          createdAt: new Date().toISOString(),
+          perspectives: {
+            white: { completed: false, completedAt: null },
+            red: { completed: false, completedAt: null },
+            black: { completed: false, completedAt: null },
+            yellow: { completed: false, completedAt: null },
+            green: { completed: false, completedAt: null },
+            blue: { completed: false, completedAt: null }
+          },
+          isComplete: false,
+          completedAt: null
+        };
+        
+        await fs.writeFile(
+          path.join(analysisDir, 'semaphore.json'),
+          JSON.stringify(semaphore, null, 2)
+        );
+        
+        // Create topic file
+        const topicContent = `# Critical Thinking Analysis: ${topic}
+
+**Project:** ${projectName}  
+**Analysis ID:** ${id}  
+**Created:** ${new Date().toISOString()}
+
+## Topic
+${topic}
+
+## Context
+${context || 'No additional context provided.'}
+
+## Six Thinking Hats Analysis
+
+This analysis requires completion of all six perspectives before final decision:
+
+- 🤍 **White Hat** - Facts, data, information
+- ❤️ **Red Hat** - Emotions, feelings, intuition  
+- 🖤 **Black Hat** - Caution, critical thinking, problems
+- 💛 **Yellow Hat** - Benefits, optimism, value
+- 💚 **Green Hat** - Creativity, alternatives, innovation
+- 💙 **Blue Hat** - Process, next steps, metacognition
+
+---
+*Use check_critical_thinking_status to see progress and add_perspective to contribute analysis.*
+`;
+        
+        await fs.writeFile(path.join(analysisDir, 'topic.md'), topicContent);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `🧠 Critical thinking space created!
+
+**Analysis ID:** ${id}  
+**Topic:** ${topic}  
+**Project:** ${projectName}
+
+📁 Workspace: ~/.cursor-cortex/critical_thinking/${projectName}/${id}/
+
+🎯 **Next Steps:**
+1. Use check_critical_thinking_status to see what perspectives are needed
+2. Use add_perspective to add each Six Thinking Hats analysis
+3. Complete all 6 perspectives for final analysis
+
+⚠️  **Analysis incomplete** - No perspectives added yet`,
+            },
+          ],
+        };
+      } catch (error) {
+        console.error(`Error creating critical thinking space: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error creating critical thinking space: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'check_critical_thinking_status') {
+      try {
+        const { analysisId, projectName } = toolArgs;
+        
+        console.error(`Checking critical thinking status for: ${analysisId}`);
+        
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
+        const semaphorePath = path.join(analysisDir, 'semaphore.json');
+        
+        try {
+          const semaphoreContent = await fs.readFile(semaphorePath, 'utf8');
+          const semaphore = JSON.parse(semaphoreContent);
+          
+          const perspectiveNames = {
+            white: '🤍 White Hat (Facts & Data)',
+            red: '❤️ Red Hat (Emotions & Intuition)', 
+            black: '🖤 Black Hat (Caution & Problems)',
+            yellow: '💛 Yellow Hat (Benefits & Optimism)',
+            green: '💚 Green Hat (Creativity & Alternatives)',
+            blue: '💙 Blue Hat (Process & Next Steps)'
+          };
+          
+          const completed = Object.entries(semaphore.perspectives)
+            .filter(([_, data]) => data.completed);
+          const missing = Object.entries(semaphore.perspectives)
+            .filter(([_, data]) => !data.completed);
+          
+          let statusReport = `🧠 **Critical Thinking Analysis Status**
+
+**Topic:** "${semaphore.topic}"  
+**Analysis ID:** ${analysisId}  
+**Project:** ${projectName}  
+**Created:** ${new Date(semaphore.createdAt).toLocaleString()}
+
+**Progress:** ${completed.length}/6 perspectives completed
+
+## ✅ Completed Perspectives:
+${completed.length > 0 ? 
+  completed.map(([perspective, data]) => 
+    `- ${perspectiveNames[perspective]} - ${new Date(data.completedAt).toLocaleString()}`
+  ).join('\n') : 
+  '(None completed yet)'}
+
+## ❌ Missing Perspectives:
+${missing.length > 0 ?
+  missing.map(([perspective]) => 
+    `- ${perspectiveNames[perspective]} - **REQUIRED**`
+  ).join('\n') :
+  '(All perspectives complete!)'}
+`;
+
+          if (semaphore.isComplete) {
+            statusReport += `\n\n🎉 **ANALYSIS COMPLETE!**  
+✅ All Six Thinking Hats perspectives documented  
+📄 Final analysis available in final_analysis.md  
+🎯 Ready for informed decision making!`;
+          } else {
+            statusReport += `\n\n⚠️  **Analysis incomplete** - ${missing.length} perspective${missing.length !== 1 ? 's' : ''} remaining  
+🚫 Final decision blocked until all hats complete  
+
+**Next:** Use add_perspective to complete missing analyses`;
+          }
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: statusReport,
+              },
+            ],
+          };
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Critical thinking analysis not found: ${analysisId} for project ${projectName}. Use request_critical_thinking_space to create it.`,
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+      } catch (error) {
+        console.error(`Error checking critical thinking status: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error checking critical thinking status: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'request_thinking_guidance') {
+      try {
+        const { analysisId, projectName, perspective } = toolArgs;
+        
+        console.error(`Requesting thinking guidance for ${perspective} hat in analysis: ${analysisId}`);
+        
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
+        const semaphorePath = path.join(analysisDir, 'semaphore.json');
+        
+        // Validate perspective
+        const validPerspectives = ['white', 'red', 'black', 'yellow', 'green', 'blue'];
+        if (!validPerspectives.includes(perspective)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid perspective: ${perspective}. Must be one of: ${validPerspectives.join(', ')}`,
+              },
+            ],
+          };
+        }
+        
+        // Read and update semaphore to track guidance request
+        let semaphore;
+        try {
+          const semaphoreContent = await fs.readFile(semaphorePath, 'utf8');
+          semaphore = JSON.parse(semaphoreContent);
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Analysis not found: ${analysisId}. Use request_critical_thinking_space first.`,
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+        
+        // Initialize guidance tracking if not exists
+        if (!semaphore.guidanceRequested) {
+          semaphore.guidanceRequested = {};
+        }
+        
+        // Mark guidance as requested for this perspective
+        semaphore.guidanceRequested[perspective] = {
+          requested: true,
+          requestedAt: new Date().toISOString()
+        };
+        
+        await fs.writeFile(semaphorePath, JSON.stringify(semaphore, null, 2));
+        
+        // Return thinking guidance for this perspective
+        const thinkingGuidance = {
+          white: `🤍 **WHITE HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- What do we know for certain? What are the objective facts?
+- What information is missing? What data do we need?
+- What evidence supports or contradicts this approach?
+- What are the measurable, verifiable aspects?
+
+**Think factually and objectively. Focus on data, evidence, and information gaps.**`,
+          
+          red: `❤️ **RED HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- How does this FEEL? Trust your gut reactions
+- What emotional responses might users/stakeholders have?
+- What does your intuition say about risks/opportunities?
+- What hunches or instincts emerge about this decision?
+
+**Think emotionally and intuitively. Trust feelings, hunches, and gut reactions.**`,
+          
+          black: `🖤 **BLACK HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- What could go wrong? What are the potential problems?
+- What risks and obstacles might we encounter?
+- What weaknesses exist in this approach?
+- Why might this fail? What are the downsides?
+
+**Think critically and cautiously. Focus on risks, problems, and potential failures.**`,
+          
+          yellow: `💛 **YELLOW HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- What are the benefits and positive outcomes?
+- Why might this succeed? What advantages exist?
+- What opportunities does this create?
+- What value and optimistic possibilities emerge?
+
+**Think positively and optimistically. Focus on benefits, value, and success potential.**`,
+          
+          green: `💚 **GREEN HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- What alternative approaches exist? Think creatively!
+- What new ideas or innovations could emerge?
+- How could we do this differently or better?
+- What provocative questions or concepts arise?
+
+**Think creatively and innovatively. Generate alternatives, ideas, and possibilities.**`,
+          
+          blue: `💙 **BLUE HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- How should we proceed? What's the process?
+- What steps need to be taken next?
+- How do we organize and prioritize actions?
+- What's the overall plan and framework?
+
+**Think systematically about process. Focus on planning, organization, and next steps.**`
+        };
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${thinkingGuidance[perspective]}
+
+🎯 **Now use add_perspective to submit your ${perspective.toUpperCase()} HAT analysis following this thinking approach.**`,
+            },
+          ],
+        };
+        
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error requesting thinking guidance: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'add_perspective') {
+      try {
+        const { analysisId, projectName, perspective, analysis } = toolArgs;
+        
+        console.error(`Adding ${perspective} hat perspective to analysis: ${analysisId}`);
+        
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
+        const semaphorePath = path.join(analysisDir, 'semaphore.json');
+        
+        // Validate perspective
+        const validPerspectives = ['white', 'red', 'black', 'yellow', 'green', 'blue'];
+        if (!validPerspectives.includes(perspective)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid perspective: ${perspective}. Must be one of: ${validPerspectives.join(', ')}`,
+              },
+            ],
+          };
+        }
+        
+        try {
+          // Read and update semaphore
+          const semaphoreContent = await fs.readFile(semaphorePath, 'utf8');
+          const semaphore = JSON.parse(semaphoreContent);
+          
+          // Check if perspective already completed
+          if (semaphore.perspectives[perspective].completed) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ ${perspective.toUpperCase()} Hat perspective already completed for this analysis. Each perspective can only be added once.`,
+                },
+              ],
+            };
+          }
+          
+          // ENFORCE: Check if thinking guidance was requested first
+          if (!semaphore.guidanceRequested || !semaphore.guidanceRequested[perspective]?.requested) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ **GUIDANCE REQUIRED FIRST!**
+
+You must call request_thinking_guidance for ${perspective.toUpperCase()} Hat before adding analysis.
+
+🎯 **Proper workflow:**
+1. Call request_thinking_guidance with perspective: "${perspective}"
+2. Read the thinking guidance carefully
+3. Analyze following that thinking approach  
+4. Call add_perspective with your analysis
+
+This enforces proper Six Thinking Hats methodology!`,
+                },
+              ],
+            };
+          }
+          
+          // Update semaphore
+          semaphore.perspectives[perspective] = {
+            completed: true,
+            completedAt: new Date().toISOString()
+          };
+          
+          // Check if all perspectives complete
+          const allComplete = Object.values(semaphore.perspectives).every(p => p.completed);
+          if (allComplete && !semaphore.isComplete) {
+            semaphore.isComplete = true;
+            semaphore.completedAt = new Date().toISOString();
+          }
+          
+          await fs.writeFile(semaphorePath, JSON.stringify(semaphore, null, 2));
+          
+          // Save perspective analysis
+          const perspectiveNames = {
+            white: 'White Hat - Facts & Data',
+            red: 'Red Hat - Emotions & Intuition',
+            black: 'Black Hat - Caution & Problems', 
+            yellow: 'Yellow Hat - Benefits & Optimism',
+            green: 'Green Hat - Creativity & Alternatives',
+            blue: 'Blue Hat - Process & Next Steps'
+          };
+          
+          const perspectiveContent = `# ${perspectiveNames[perspective]}
+
+**Analysis ID:** ${analysisId}  
+**Topic:** ${semaphore.topic}  
+**Added:** ${new Date().toISOString()}
+
+## Analysis
+
+${analysis}
+
+---
+*Part of Six Thinking Hats critical thinking analysis*
+`;
+          
+          await fs.writeFile(
+            path.join(analysisDir, `${perspective}_hat.md`),
+            perspectiveContent
+          );
+          
+          let result = `✅ **${perspective.toUpperCase()} Hat perspective added successfully!**
+
+Your ${perspective.toUpperCase()} HAT analysis has been recorded.
+
+**Topic:** ${semaphore.topic}  
+**Analysis ID:** ${analysisId}
+
+`;
+          
+          if (allComplete) {
+            // Generate final analysis when complete
+            const finalAnalysis = await generateFinalAnalysis(semaphore, analysisDir);
+            await fs.writeFile(path.join(analysisDir, 'final_analysis.md'), finalAnalysis);
+            
+            result += `🎉 **CRITICAL THINKING ANALYSIS COMPLETE!**
+
+All Six Thinking Hats perspectives have been documented:
+✅ White Hat (Facts & Data)  
+✅ Red Hat (Emotions & Intuition)  
+✅ Black Hat (Caution & Problems)  
+✅ Yellow Hat (Benefits & Optimism)  
+✅ Green Hat (Creativity & Alternatives)  
+✅ Blue Hat (Process & Next Steps)  
+
+📄 **Final comprehensive analysis generated**  
+🎯 **Ready for informed decision making!**`;
+          } else {
+            const remaining = Object.entries(semaphore.perspectives)
+              .filter(([_, data]) => !data.completed)
+              .map(([p]) => p)
+              .join(', ');
+            
+            result += `**Progress:** ${Object.values(semaphore.perspectives).filter(p => p.completed).length}/6 perspectives complete
+
+**Still needed:** ${remaining}  
+Use check_critical_thinking_status to see detailed progress.`;
+          }
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Critical thinking analysis not found: ${analysisId} for project ${projectName}. Use request_critical_thinking_space to create it.`,
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+      } catch (error) {
+        console.error(`Error adding perspective: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error adding perspective: ${error.message}`,
             },
           ],
         };
