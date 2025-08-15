@@ -449,8 +449,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: 'request_thinking_guidance',
+        description: 'Request Six Thinking Hats guidance for a specific perspective before analysis. Shows thinking prompts and questions to guide proper analysis approach. Must be called BEFORE add_perspective for that hat color.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            analysisId: { type: 'string', description: 'The analysis ID to request guidance for' },
+            projectName: { type: 'string', description: 'Name of the project' },
+            perspective: { type: 'string', description: 'The thinking hat perspective to get guidance for', enum: ['white', 'red', 'black', 'yellow', 'green', 'blue'] },
+          },
+          required: ['analysisId', 'projectName', 'perspective'],
+        },
+      },
+      {
         name: 'add_perspective',
-        description: 'Add a specific Six Thinking Hats perspective to an ongoing critical thinking analysis. Updates the semaphore and checks for completion. Perspectives: white (facts/data), red (emotions/intuition), black (caution/problems), yellow (benefits/optimism), green (creativity/alternatives), blue (process/next steps).',
+        description: 'Add a specific Six Thinking Hats perspective analysis to critical thinking workspace. REQUIRES calling request_thinking_guidance first for this perspective - will fail if guidance not requested.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -3642,6 +3655,147 @@ ${missing.length > 0 ?
           ],
         };
       }
+    } else if (name === 'request_thinking_guidance') {
+      try {
+        const { analysisId, projectName, perspective } = toolArgs;
+        
+        console.error(`Requesting thinking guidance for ${perspective} hat in analysis: ${analysisId}`);
+        
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
+        const semaphorePath = path.join(analysisDir, 'semaphore.json');
+        
+        // Validate perspective
+        const validPerspectives = ['white', 'red', 'black', 'yellow', 'green', 'blue'];
+        if (!validPerspectives.includes(perspective)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid perspective: ${perspective}. Must be one of: ${validPerspectives.join(', ')}`,
+              },
+            ],
+          };
+        }
+        
+        // Read and update semaphore to track guidance request
+        let semaphore;
+        try {
+          const semaphoreContent = await fs.readFile(semaphorePath, 'utf8');
+          semaphore = JSON.parse(semaphoreContent);
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Analysis not found: ${analysisId}. Use request_critical_thinking_space first.`,
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+        
+        // Initialize guidance tracking if not exists
+        if (!semaphore.guidanceRequested) {
+          semaphore.guidanceRequested = {};
+        }
+        
+        // Mark guidance as requested for this perspective
+        semaphore.guidanceRequested[perspective] = {
+          requested: true,
+          requestedAt: new Date().toISOString()
+        };
+        
+        await fs.writeFile(semaphorePath, JSON.stringify(semaphore, null, 2));
+        
+        // Return thinking guidance for this perspective
+        const thinkingGuidance = {
+          white: `🤍 **WHITE HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- What do we know for certain? What are the objective facts?
+- What information is missing? What data do we need?
+- What evidence supports or contradicts this approach?
+- What are the measurable, verifiable aspects?
+
+**Think factually and objectively. Focus on data, evidence, and information gaps.**`,
+          
+          red: `❤️ **RED HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- How does this FEEL? Trust your gut reactions
+- What emotional responses might users/stakeholders have?
+- What does your intuition say about risks/opportunities?
+- What hunches or instincts emerge about this decision?
+
+**Think emotionally and intuitively. Trust feelings, hunches, and gut reactions.**`,
+          
+          black: `🖤 **BLACK HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- What could go wrong? What are the potential problems?
+- What risks and obstacles might we encounter?
+- What weaknesses exist in this approach?
+- Why might this fail? What are the downsides?
+
+**Think critically and cautiously. Focus on risks, problems, and potential failures.**`,
+          
+          yellow: `💛 **YELLOW HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- What are the benefits and positive outcomes?
+- Why might this succeed? What advantages exist?
+- What opportunities does this create?
+- What value and optimistic possibilities emerge?
+
+**Think positively and optimistically. Focus on benefits, value, and success potential.**`,
+          
+          green: `💚 **GREEN HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- What alternative approaches exist? Think creatively!
+- What new ideas or innovations could emerge?
+- How could we do this differently or better?
+- What provocative questions or concepts arise?
+
+**Think creatively and innovatively. Generate alternatives, ideas, and possibilities.**`,
+          
+          blue: `💙 **BLUE HAT THINKING GUIDANCE:**
+
+Before analyzing, focus on:
+- How should we proceed? What's the process?
+- What steps need to be taken next?
+- How do we organize and prioritize actions?
+- What's the overall plan and framework?
+
+**Think systematically about process. Focus on planning, organization, and next steps.**`
+        };
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${thinkingGuidance[perspective]}
+
+🎯 **Now use add_perspective to submit your ${perspective.toUpperCase()} HAT analysis following this thinking approach.**`,
+            },
+          ],
+        };
+        
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error requesting thinking guidance: ${error.message}`,
+            },
+          ],
+        };
+      }
     } else if (name === 'add_perspective') {
       try {
         const { analysisId, projectName, perspective, analysis } = toolArgs;
@@ -3678,6 +3832,29 @@ ${missing.length > 0 ?
                 {
                   type: 'text',
                   text: `❌ ${perspective.toUpperCase()} Hat perspective already completed for this analysis. Each perspective can only be added once.`,
+                },
+              ],
+            };
+          }
+          
+          // ENFORCE: Check if thinking guidance was requested first
+          if (!semaphore.guidanceRequested || !semaphore.guidanceRequested[perspective]?.requested) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ **GUIDANCE REQUIRED FIRST!**
+
+You must call request_thinking_guidance for ${perspective.toUpperCase()} Hat before adding analysis.
+
+🎯 **Proper workflow:**
+1. Call request_thinking_guidance with perspective: "${perspective}"
+2. Read the thinking guidance carefully
+3. Analyze following that thinking approach  
+4. Call add_perspective with your analysis
+
+This enforces proper Six Thinking Hats methodology!`,
                 },
               ],
             };
@@ -3728,6 +3905,8 @@ ${analysis}
           );
           
           let result = `✅ **${perspective.toUpperCase()} Hat perspective added successfully!**
+
+Your ${perspective.toUpperCase()} HAT analysis has been recorded.
 
 **Topic:** ${semaphore.topic}  
 **Analysis ID:** ${analysisId}
