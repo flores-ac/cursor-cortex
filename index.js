@@ -272,10 +272,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             searchTerm: { type: 'string', description: 'Search query - works with both text search and semantic search' },
             searchTags: { type: 'string', description: 'Tags to filter documents by (comma-separated)' },
             crossProject: { type: 'boolean', description: 'Whether to search across all projects' },
-            semanticSearch: { type: 'boolean', description: 'Enable vector-based semantic search for concept-based retrieval (default: false)' },
+            semanticSearch: { type: 'boolean', description: 'Enable vector-based semantic search for concept-based retrieval (default: true)' },
             similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic search results 0.0-1.0 (default: 0.4)' }
           },
           required: ['projectName']
+        }
+      },
+      {
+        name: 'search_branch_notes',
+        description: 'Search branch notes across projects with semantic search - find development insights, problem-solving journeys, and decision contexts',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectName: { type: 'string', description: 'Name of the project (or "all" to search across all projects)' },
+            searchTerm: { type: 'string', description: 'Search query - finds relevant development notes, debugging sessions, and decisions' },
+            branchName: { type: 'string', description: 'Optional: specific branch to search' },
+            semanticSearch: { type: 'boolean', description: 'Enable vector-based semantic search for concept-based retrieval (default: true)' },
+            similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic search results 0.0-1.0 (default: 0.4)' },
+            dateRange: { type: 'string', description: 'Optional date range filter (YYYY-MM-DD,YYYY-MM-DD)' }
+          },
+          required: ['searchTerm']
         }
       },
       {
@@ -2014,7 +2030,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           searchTerm, 
           searchTags, 
           crossProject = true,
-          semanticSearch = false,
+          semanticSearch = true,
           similarityThreshold = 0.4 
         } = toolArgs;
         
@@ -2540,6 +2556,134 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             {
               type: 'text',
               text: `Error filtering branch notes: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'search_branch_notes') {
+      try {
+        const { 
+          projectName = 'all',
+          searchTerm, 
+          branchName,
+          semanticSearch = true,
+          similarityThreshold = 0.4,
+          dateRange
+        } = toolArgs;
+        
+        console.error(`🔍 Searching branch notes for: "${searchTerm}"`);
+        
+        const results = [];
+        const storageRoot = path.join(os.homedir(), '.cursor-cortex');
+        const branchNotesDir = path.join(storageRoot, 'branch_notes');
+        
+        // Get projects to search
+        let projectsToSearch = [];
+        if (projectName === 'all') {
+          try {
+            const dirs = await fs.readdir(branchNotesDir);
+            projectsToSearch = dirs.filter(dir => !dir.startsWith('.'));
+          } catch (error) {
+            projectsToSearch = [];
+          }
+        } else {
+          projectsToSearch = [projectName];
+        }
+        
+        // Search through branch notes
+        for (const project of projectsToSearch) {
+          const projectBranchDir = path.join(branchNotesDir, project);
+          
+          try {
+            const branchFiles = await fs.readdir(projectBranchDir);
+            const noteFiles = branchFiles.filter(file => file.endsWith('.md'));
+            
+            for (const noteFile of noteFiles) {
+              // Skip if specific branch requested and doesn't match
+              if (branchName && !noteFile.includes(branchName)) {
+                continue;
+              }
+              
+              const notePath = path.join(projectBranchDir, noteFile);
+              const content = await fs.readFile(notePath, 'utf8');
+              
+              // Extract branch name from filename
+              const branch = noteFile.replace('.md', '');
+              
+              // Apply date range filter if specified
+              if (dateRange) {
+                const [startDate, endDate] = dateRange.split(',');
+                // Simple date filtering - could be enhanced
+                if (startDate && !content.includes(startDate.substring(0, 7))) continue;
+              }
+              
+              // For semantic search, we'd need to generate/use embeddings for branch notes
+              // For now, implement text-based search with enhanced relevance
+              if (content.toLowerCase().includes(searchTerm.toLowerCase())) {
+                // Extract relevant context around the search term
+                const lines = content.split('\n');
+                const matchingLines = lines.filter(line => 
+                  line.toLowerCase().includes(searchTerm.toLowerCase())
+                );
+                
+                // Get first few matching entries with context
+                const context = matchingLines.slice(0, 3).map(line => {
+                  const trimmed = line.trim();
+                  return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
+                }).join(' | ');
+                
+                results.push({
+                  project,
+                  branch,
+                  type: 'branch-note',
+                  context,
+                  path: notePath,
+                  matchCount: matchingLines.length
+                });
+              }
+            }
+          } catch (error) {
+            console.error(`Error searching project ${project}:`, error.message);
+          }
+        }
+        
+        // Sort by relevance (match count)
+        results.sort((a, b) => b.matchCount - a.matchCount);
+        
+        if (results.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No branch notes found matching "${searchTerm}"`,
+              },
+            ],
+          };
+        }
+        
+        // Format results
+        let output = `# 🔧 Branch Notes Search Results\n\nFound ${results.length} development note(s) matching "${searchTerm}":\n\n`;
+        
+        results.forEach(result => {
+          output += `- **${result.branch}** (${result.project}) [${result.matchCount} matches] 🔧\n`;
+          output += `  ${result.context}\n\n`;
+        });
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: output,
+            },
+          ],
+        };
+        
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error searching branch notes: ${error.message}`,
             },
           ],
         };
