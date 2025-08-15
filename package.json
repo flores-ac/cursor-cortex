@@ -34,8 +34,13 @@
     "commander": "^9.4.1"
   },
   "keywords": [
+    "ai-memory",
+    "cursor-extension", 
+    "semantic-search",
     "knowledge-management",
     "tacit-knowledge",
+    "team-collaboration",
+    "background-agents",
     "commits",
     "branch-notes",
     "jira"
@@ -44,7 +49,7 @@
     "mcp": {
       "command": "node index.js",
       "displayName": "Cursor-Cortex",
-      "description": "Knowledge management system integrated with commit tracking",
+      "description": "AI memory system that transforms Cursor into an experienced teammate with semantic search, knowledge archaeology, and team collaboration",
       "debug": true
     }
   },

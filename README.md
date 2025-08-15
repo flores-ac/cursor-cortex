@@ -64,7 +64,26 @@ pwd
 # Copy the output - you'll need it for configuration
 ```
 
-### 3. Configure Cursor MCP
+### 3. Vector Search Setup (Optional)
+For AI-powered semantic search capabilities:
+
+**System Requirements:**
+- Node.js 18+ 
+- 2GB RAM for vector models
+- 500MB disk space
+
+**Setup Options:**
+```bash
+# Option A: CPU Backend (Recommended - works on all systems)
+# Already included in dependencies - no extra setup needed
+
+# Option B: Docker Environment (For production deployments)
+npm run docker:build && npm run docker:test
+
+
+```
+
+### 4. Configure Cursor MCP
 Create or edit `~/.cursor/mcp.json`:
 ```json
 "cursor-cortex": {
@@ -103,16 +122,16 @@ Create or edit `~/.cursor/mcp.json`:
 ```
 **Replace `/YOUR/FULL/PATH/TO/cursor-cortex/` with the output from step 2**
 
-### 4. Restart Cursor
+### 5. Restart Cursor
 Close and reopen Cursor completely.
 
-### 5. Enable MCP Server
+### 6. Enable MCP Server
 1. Go to **Cursor Settings** (Cmd/Ctrl + ,)
 2. Navigate to **Features → Model Context Protocol**
 3. Find **cursor-cortex** and toggle it **ON**
 4. You should see: `Storage directory created at /Users/yourname/.cursor-cortex`
 
-### 6. Test It
+### 7. Test It
 In any Cursor chat, try:
 ```
 "Update my branch notes: Testing Cursor-Cortex setup"
@@ -120,10 +139,33 @@ In any Cursor chat, try:
 
 If it works, you'll see: `Successfully updated branch note with: "Testing Cursor-Cortex setup"`
 
-### 7. Start Using
+## 🔧 Troubleshooting
+
+### Common Issues:
+
+**❌ "Tool not found" error**
+- Restart Cursor completely after configuration
+- Verify MCP server is enabled in settings
+- Check file path in mcp.json is correct (no typos)
+
+**❌ MCP configuration not working**
+- Validate JSON syntax at [jsonlint.com](https://jsonlint.com)
+- Ensure commas and quotes are correct
+- Check file permissions on mcp.json
+
+**❌ Vector search not working**
+- Run `npm install` to ensure TensorFlow.js is installed
+- Check system has 2GB+ RAM available
+- Try text search mode if vector search fails
+
+**Need Help?** Create an issue with your error message for quick support.
+
+### 8. Start Using
 - **"Show my uncommitted work"** - See what you've been working on
 - **"Generate a commit message"** - Create commits from your notes
 - **"Create tacit knowledge document"** - Save solutions for later
+
+
 
 ## 📖 Basic Usage
 
