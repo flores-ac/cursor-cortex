@@ -63,8 +63,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
-        name: 'filter_branch_note',
-        description: 'Filter branch notes - defaults to showing uncommitted work, can also filter by commit hash or date range',
+        name: 'read_branch_notes',
+        description: 'Read branch notes - defaults to showing uncommitted work, can also filter by commit hash or date range',
         inputSchema: {
           type: 'object',
           properties: {
@@ -77,18 +77,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ['branchName', 'projectName'],
         }
-      },
-      {
-        name: 'read_branch_note',
-        description: 'Read the running note for the current branch',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            branchName: { type: 'string', description: 'Name of the branch' },
-            projectName: { type: 'string', description: 'Name of the project' },
-          },
-          required: ['branchName', 'projectName'],
-        },
       },
       {
         name: 'update_context_file',
@@ -1003,11 +991,26 @@ All changes:
         };
       }
     } else if (name === 'read_branch_note') {
+      // DEPRECATED: Use read_branch_notes instead
+      // This wrapper provides backwards compatibility by calling read_branch_notes with uncommittedOnly=false
+      console.error('WARNING: read_branch_note is deprecated. Use read_branch_notes instead.');
+      
       try {
         const { branchName, projectName } = toolArgs;
-        const filePath = getBranchNotePath(projectName, branchName);
         
-        console.error(`Reading branch note from ${filePath}`);
+        // Call the unified read_branch_notes logic with uncommittedOnly=false to show all content
+        const modifiedArgs = { 
+          branchName, 
+          projectName, 
+          uncommittedOnly: false,
+          // No other filters - just show all content
+          commitHash: undefined,
+          beforeDate: undefined,
+          afterDate: undefined
+        };
+        
+        // Simply read the entire file content (like the old read_branch_note did)
+        const filePath = getBranchNotePath(projectName, branchName);
         
         try {
           const content = await fs.readFile(filePath, 'utf-8');
@@ -1032,6 +1035,7 @@ All changes:
           }
           throw error;
         }
+        
       } catch (error) {
         return {
           isError: true,
@@ -2387,7 +2391,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       } catch {
         // Directory doesn't exist, which will be handled in the read function
       }
-    } else if (name === 'filter_branch_note') {
+    } else if (name === 'read_branch_notes') {
       try {
         const { branchName, projectName, commitHash, beforeDate, afterDate, uncommittedOnly = true } = toolArgs;
         
