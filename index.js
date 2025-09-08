@@ -372,15 +372,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'timeline_reconstruction',
-        description: 'Phase 2.2: Timeline Reconstruction Tool - Extracts chronological timeline data from branch notes and commit separators for reality sync analysis. IMPORTANT: This tool analyzes ALL projects by default unless projectName is specified. Date filtering uses YYYY-MM-DD format and is inclusive. Returns comprehensive chronological timeline with both commits and branch note entries. Use dateRange parameter for specific time periods, omit for full timeline analysis.',
+        description: 'Phase 2.2: Timeline Reconstruction Tool - Extracts chronological timeline data from branch notes and commit separators for reality sync analysis. OPTIMIZED: Now shows titles only for better performance and readability. Smart date filtering with shortcuts available. Returns scalable timeline with titles instead of full content.',
         inputSchema: {
           type: 'object',
           properties: {
             projectName: { type: 'string', description: 'Name of the project to analyze (optional - if not provided, analyzes all projects across entire knowledge base)' },
             branchName: { type: 'string', description: 'Specific branch to analyze (optional - if not provided, analyzes all branches within specified or all projects)' },
-            dateRange: { type: 'string', description: 'Date range filter in format "YYYY-MM-DD,YYYY-MM-DD" (optional). Dates are inclusive. Example: "2025-06-24,2025-06-25" for 2-day range. Omit for all-time analysis.' },
+            dateRange: { type: 'string', description: 'Date range filter in format "YYYY-MM-DD,YYYY-MM-DD" or shortcuts: "7d", "30d", "90d" for recent periods. Default: last 90 days if no filter specified.' },
             includeCommits: { type: 'boolean', description: 'Include commit separators in timeline (default: true)' },
             includeEntries: { type: 'boolean', description: 'Include branch note entries in timeline (default: true)' },
+            showFullTimeline: { type: 'boolean', description: 'Show full timeline without date limits (default: false for performance)' },
           },
           required: [],
         },
@@ -3492,12 +3493,13 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           branchName, 
           dateRange, 
           includeCommits = true, 
-          includeEntries = true 
+          includeEntries = true,
+          showFullTimeline = false
         } = toolArgs;
         
         console.error(`Timeline reconstruction for project: ${projectName || 'ALL'}, branch: ${branchName || 'ALL'}`);
         
-        const timeline = await reconstructTimeline(projectName, branchName, dateRange, includeCommits, includeEntries);
+        const timeline = await reconstructTimeline(projectName, branchName, dateRange, includeCommits, includeEntries, showFullTimeline);
         
         return {
           content: [
@@ -5060,27 +5062,99 @@ async function getContextInfoForProject(projectName) {
 // =============================================================================
 
 /**
- * Reconstructs chronological timeline from branch notes and commit separators
- * Pure data extraction - no interpretation, just facts
+ * Extracts a meaningful title from entry content
+ * Uses first non-empty line, with intelligent fallback logic
  */
-async function reconstructTimeline(projectName, branchName, dateRange, includeCommits, includeEntries) {
+function extractEntryTitle(content) {
+  if (!content || !content.trim()) return '[Empty entry]';
+  
+  const lines = content.trim().split('\n');
+  
+  // Find first non-empty, non-whitespace line
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.match(/^[\s\-\*\#]*$/)) {
+      // Remove markdown formatting and emoji for cleaner titles
+      const cleaned = trimmed
+        .replace(/^#+\s*/, '')           // Remove markdown headers
+        .replace(/^\*+\s*/, '')          // Remove bullet points
+        .replace(/^[\-\+]\s*/, '')       // Remove dash/plus bullets
+        .replace(/^\d+\.\s*/, '')        // Remove numbered lists
+        .substring(0, 100);              // Limit length
+      
+      return cleaned || '[Untitled entry]';
+    }
+  }
+  
+  // Fallback: use first 50 chars if no clear title found
+  const fallback = content.trim().substring(0, 50).replace(/\n/g, ' ');
+  return fallback || '[Untitled entry]';
+}
+
+/**
+ * Reconstructs chronological timeline from branch notes and commit separators
+ * Pure data extraction - now optimized for titles-only output to improve performance
+ */
+async function reconstructTimeline(projectName, branchName, dateRange, includeCommits, includeEntries, showFullTimeline) {
   const storageRoot = path.join(os.homedir(), '.cursor-cortex');
   const timelineEvents = [];
   
-    // Parse date range if provided (format: "YYYY-MM-DD,YYYY-MM-DD")
+  // Smart date filtering with shortcuts and defaults
   let startDate = null;
   let endDate = null;
-  if (dateRange) {
-    const [start, end] = dateRange.split(',');
-    startDate = start ? new Date(start + 'T00:00:00') : null;
-    endDate = end ? new Date(end + 'T23:59:59') : null;
+  
+  if (showFullTimeline) {
+    // No date limits when explicitly requested
+    startDate = null;
+    endDate = null;
+  } else if (dateRange) {
+    // Handle shortcuts and custom ranges
+    const now = new Date();
+    if (dateRange === '7d') {
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      startDate.setHours(0, 0, 0, 0); // Start of day
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999); // End of day
+    } else if (dateRange === '30d') {
+      startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (dateRange === '90d') {
+      startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      // Parse custom date range (format: "YYYY-MM-DD,YYYY-MM-DD")
+      const [start, end] = dateRange.split(',');
+      startDate = start ? new Date(start + 'T00:00:00') : null;
+      endDate = end ? new Date(end + 'T23:59:59') : null;
+    }
+  } else {
+    // Default: last 90 days for performance
+    const now = new Date();
+    startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    startDate.setHours(0, 0, 0, 0);
+    endDate = new Date(now);
+    endDate.setHours(23, 59, 59, 999);
   }
 
   // Helper function to check if date is in range
   const isInDateRange = (dateStr) => {
     if (!startDate && !endDate) return true;
     
-    const eventDate = new Date(dateStr);
+    // Parse timestamp consistently - treat as local time to avoid timezone shifts
+    let eventDate;
+    if (dateStr.includes(' ')) {
+      // Handle format "YYYY-MM-DD HH:MM:SS" - parse as local time
+      const [datePart, timePart] = dateStr.split(' ');
+      eventDate = new Date(datePart + 'T' + timePart);
+    } else {
+      // Handle other date formats
+      eventDate = new Date(dateStr);
+    }
+    
     if (isNaN(eventDate)) return true;
     
     if (startDate && eventDate < startDate) return false;
@@ -5152,7 +5226,7 @@ async function reconstructTimeline(projectName, branchName, dateRange, includeCo
                   project: proj,
                   branch: currentBranch,
                   timestamp: currentTimestamp,
-                  content: currentEntry.trim(),
+                  title: extractEntryTitle(currentEntry.trim()),
                   significance: 'medium'
                 });
               }
@@ -5171,7 +5245,7 @@ async function reconstructTimeline(projectName, branchName, dateRange, includeCo
                   project: proj,
                   branch: currentBranch,
                   timestamp: currentTimestamp,
-                  content: currentEntry.trim(),
+                  title: extractEntryTitle(currentEntry.trim()),
                   significance: 'medium'
                 });
               }
@@ -5193,7 +5267,7 @@ async function reconstructTimeline(projectName, branchName, dateRange, includeCo
               project: proj,
               branch: currentBranch,
               timestamp: currentTimestamp,
-              content: currentEntry.trim(),
+              title: extractEntryTitle(currentEntry.trim()),
               significance: 'medium'
             });
           }
@@ -5214,7 +5288,7 @@ async function reconstructTimeline(projectName, branchName, dateRange, includeCo
     return dateA - dateB;
   });
   
-  return formatTimelineOutput(timelineEvents, projectsToAnalyze, dateRange);
+  return formatTimelineOutput(timelineEvents, projectsToAnalyze, dateRange, showFullTimeline);
 }
 
 /**
@@ -5250,13 +5324,28 @@ async function getAllProjectsFromBranchNotes() {
 /**
  * Format timeline output for display
  */
-function formatTimelineOutput(events, projects, dateRange) {
-  let output = '# 📅 Timeline Reconstruction Report\n\n';
+function formatTimelineOutput(events, projects, dateRange, showFullTimeline) {
+  let output = '# 📅 Timeline Reconstruction Report (Titles Only)\n\n';
   
   // Summary
   output += '## Summary\n\n';
   output += `**Projects Analyzed:** ${projects.join(', ')}\n`;
-  output += `**Date Range:** ${dateRange || 'All time'}\n`;
+  
+  // Smarter date range display
+  let displayRange = 'Last 90 days (default)';
+  if (showFullTimeline) {
+    displayRange = 'All time';
+  } else if (dateRange === '7d') {
+    displayRange = 'Last 7 days';
+  } else if (dateRange === '30d') {
+    displayRange = 'Last 30 days';
+  } else if (dateRange === '90d') {
+    displayRange = 'Last 90 days';
+  } else if (dateRange && dateRange.includes(',')) {
+    displayRange = dateRange;
+  }
+  
+  output += `**Date Range:** ${displayRange}\n`;
   output += `**Total Events:** ${events.length}\n`;
   output += `**Commits:** ${events.filter(e => e.type === 'commit').length}\n`;
   output += `**Entries:** ${events.filter(e => e.type === 'entry').length}\n\n`;
@@ -5291,8 +5380,7 @@ function formatTimelineOutput(events, projects, dateRange) {
         output += `- Message: ${event.message}\n\n`;
       } else if (event.type === 'entry') {
         output += `**${time}** 📝 **ENTRY** [${projectBranch}]\n`;
-        const preview = event.content.substring(0, 200).replace(/\n/g, ' ');
-        output += `- ${preview}${event.content.length > 200 ? '...' : ''}\n\n`;
+        output += `- ${event.title}\n\n`;
       }
     });
   });
