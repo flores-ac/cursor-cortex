@@ -1,7 +1,7 @@
 {
   "name": "cursor-cortex",
-  "version": "1.1.0",
-  "description": "Knowledge management system integrated with commit tracking",
+  "version": "1.2.0",
+  "description": "AI memory system that transforms Cursor into an experienced teammate with semantic search, knowledge archaeology, and team collaboration",
   "main": "index.js",
   "type": "module",
   "bin": {
