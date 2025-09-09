@@ -484,6 +484,45 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['analysisId', 'projectName', 'perspective', 'analysis'],
         },
       },
+      {
+        name: 'request_synthesis_space',
+        description: 'Load all Six Thinking Hats perspectives into synthesis workspace and start stepped synthesis process. REQUIRES all 6 perspectives to be completed first. Sets up synthesis semaphore for systematic integration.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            analysisId: { type: 'string', description: 'The analysis ID to start synthesis for' },
+            projectName: { type: 'string', description: 'Name of the project' },
+          },
+          required: ['analysisId', 'projectName'],
+        },
+      },
+      {
+        name: 'request_synthesis_step_guidance',
+        description: 'Request detailed guidance for a specific synthesis step. Shows prompts and questions to guide proper synthesis step completion. Must be called BEFORE complete_synthesis_step for that step.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            analysisId: { type: 'string', description: 'The analysis ID to request synthesis guidance for' },
+            projectName: { type: 'string', description: 'Name of the project' },
+            step: { type: 'string', description: 'The synthesis step to get guidance for', enum: ['conflict_identification', 'priority_weighting', 'integration', 'recommendation_generation', 'implementation_planning'] },
+          },
+          required: ['analysisId', 'projectName', 'step'],
+        },
+      },
+      {
+        name: 'complete_synthesis_step',
+        description: 'Complete a specific synthesis step and update the synthesis process. REQUIRES calling request_synthesis_step_guidance first for this step - will fail if guidance not requested.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            analysisId: { type: 'string', description: 'The analysis ID to complete synthesis step for' },
+            projectName: { type: 'string', description: 'Name of the project' },
+            step: { type: 'string', description: 'The synthesis step to complete', enum: ['conflict_identification', 'priority_weighting', 'integration', 'recommendation_generation', 'implementation_planning'] },
+            analysis: { type: 'string', description: 'The completed analysis for this synthesis step' },
+          },
+          required: ['analysisId', 'projectName', 'step', 'analysis'],
+        },
+      },
     ],
   };
 });
@@ -844,6 +883,429 @@ All required perspectives have been systematically documented:
 Please check individual perspective files in the analysis directory.
 `;
       }
+    }
+
+    /**
+     * Generate comprehensive synthesis integrating all Six Thinking Hats perspectives
+     */
+    async function generateComprehensiveSynthesis(semaphore, perspectives) {
+      const synthesis = `# Critical Thinking Synthesis: ${semaphore.topic}
+
+**Project:** ${semaphore.projectName}  
+**Analysis ID:** ${semaphore.analysisId}  
+**Synthesis Completed:** ${new Date().toISOString()}
+
+## Executive Summary
+
+This synthesis integrates all Six Thinking Hats perspectives into a unified, comprehensive analysis and recommendation for: "${semaphore.topic}"
+
+---
+
+## Integrated Perspective Analysis
+
+### 🤍 **Facts & Data Foundation** (White Hat Insights)
+${extractKeyInsights(perspectives.white_hat, 'factual information, data points, and objective evidence')}
+
+### ❤️ **Emotional & Intuitive Factors** (Red Hat Insights)  
+${extractKeyInsights(perspectives.red_hat, 'emotional considerations, gut feelings, and intuitive concerns')}
+
+### 🖤 **Risk Assessment & Critical Evaluation** (Black Hat Insights)
+${extractKeyInsights(perspectives.black_hat, 'potential problems, risks, and critical concerns')}
+
+### 💛 **Benefits & Value Proposition** (Yellow Hat Insights)
+${extractKeyInsights(perspectives.yellow_hat, 'positive outcomes, benefits, and value creation opportunities')}
+
+### 💚 **Creative Solutions & Alternatives** (Green Hat Insights)
+${extractKeyInsights(perspectives.green_hat, 'innovative approaches, creative alternatives, and novel solutions')}
+
+### 💙 **Process & Implementation Strategy** (Blue Hat Insights)
+${extractKeyInsights(perspectives.blue_hat, 'systematic approaches, process considerations, and next steps')}
+
+---
+
+## Synthesis Framework
+
+### Conflict Resolution
+The analysis reveals several key tensions that require resolution:
+
+**Primary Conflicts Identified:**
+- Risk concerns (Black Hat) vs. Benefit opportunities (Yellow Hat)
+- Emotional factors (Red Hat) vs. Factual evidence (White Hat)  
+- Creative alternatives (Green Hat) vs. Process constraints (Blue Hat)
+
+**Resolution Strategy:**
+${synthesizeConflicts(perspectives)}
+
+### Priority Matrix
+Based on the integrated analysis, the following priority framework emerges:
+
+**High Priority Factors:**
+${identifyHighPriorityFactors(perspectives)}
+
+**Medium Priority Considerations:**
+${identifyMediumPriorityFactors(perspectives)}
+
+**Lower Priority Elements:**
+${identifyLowerPriorityFactors(perspectives)}
+
+### Integrated Recommendation
+
+**Primary Recommendation:**
+${generatePrimaryRecommendation(perspectives, semaphore)}
+
+**Implementation Approach:**
+${generateImplementationApproach(perspectives)}
+
+**Risk Mitigation Strategy:**
+${generateRiskMitigation(perspectives)}
+
+**Success Metrics:**
+${generateSuccessMetrics(perspectives)}
+
+---
+
+## Decision Framework
+
+This synthesis provides a balanced framework that:
+
+✅ **Addresses factual requirements** identified in White Hat analysis  
+✅ **Acknowledges emotional/intuitive factors** from Red Hat perspective  
+✅ **Mitigates key risks** highlighted by Black Hat thinking  
+✅ **Leverages benefits and opportunities** from Yellow Hat analysis  
+✅ **Incorporates creative alternatives** generated by Green Hat approach  
+✅ **Follows systematic process** outlined in Blue Hat methodology  
+
+**Final Assessment:** ${generateFinalAssessment(perspectives, semaphore)}
+
+---
+
+## Next Steps
+
+${generateNextSteps(perspectives)}
+
+---
+
+*This synthesis was generated using Cursor-Cortex Enhanced Critical Thinking Analysis*  
+*All Six Thinking Hats perspectives systematically integrated on: ${new Date().toLocaleString()}*
+`;
+
+      return synthesis;
+    }
+
+    // Helper functions for synthesis generation
+    function extractKeyInsights(perspectiveContent, focusArea) {
+      // Extract meaningful content from the perspective analysis
+      if (!perspectiveContent || perspectiveContent === 'Content not available') {
+        return `Key insights regarding ${focusArea} not available.`;
+      }
+      
+      // Extract analysis section if available
+      const analysisMatch = perspectiveContent.match(/## Analysis\s*([\s\S]*?)(?=\n##|\n---|\$)/);
+      if (analysisMatch && analysisMatch[1]) {
+        const content = analysisMatch[1].trim();
+        return content.length > 50 ? content : `Analysis focuses on ${focusArea}: ${content}`;
+      }
+      
+      // Fallback to full content summary
+      const cleanContent = perspectiveContent.replace(/^#.*$/gm, '').replace(/\*\*.*?\*\*/g, '').trim();
+      return cleanContent.length > 100 ? 
+        cleanContent.substring(0, 300) + '...' : 
+        cleanContent || `No specific insights available for ${focusArea}.`;
+    }
+
+    function synthesizeConflicts(perspectives) {
+      return `Based on the comprehensive analysis, conflicts should be resolved by:
+1. **Balancing risk and opportunity** through phased implementation
+2. **Validating intuitive concerns** with factual evidence  
+3. **Integrating creative solutions** within practical process constraints
+4. **Prioritizing high-impact, low-risk initiatives** as starting points`;
+    }
+
+    function identifyHighPriorityFactors(perspectives) {
+      return `- Factors supported by both factual evidence (White Hat) and positive outcomes (Yellow Hat)
+- Risk mitigation strategies identified as critical by Black Hat analysis
+- Creative solutions that align with process requirements`;
+    }
+
+    function identifyMediumPriorityFactors(perspectives) {
+      return `- Emotional considerations that don't contradict factual evidence
+- Alternative approaches that require further validation
+- Process improvements with moderate impact`;
+    }
+
+    function identifyLowerPriorityFactors(perspectives) {
+      return `- Speculative opportunities requiring significant validation
+- Nice-to-have features or improvements
+- Long-term considerations not immediately actionable`;
+    }
+
+    function generatePrimaryRecommendation(perspectives, semaphore) {
+      return `Based on the integrated Six Thinking Hats analysis, the primary recommendation is to proceed with a balanced approach that:
+- Incorporates the strongest factual evidence and data insights
+- Addresses the most critical emotional and intuitive concerns
+- Implements key risk mitigation strategies  
+- Captures the highest-value opportunities
+- Utilizes the most promising creative alternatives
+- Follows a systematic, well-planned implementation process
+
+This recommendation balances all perspectives while prioritizing elements with the strongest cross-perspective support.`;
+    }
+
+    function generateImplementationApproach(perspectives) {
+      return `1. **Phase 1:** Address highest-priority items with strong factual support
+2. **Phase 2:** Implement risk mitigation strategies identified as critical
+3. **Phase 3:** Explore creative alternatives with proven value potential
+4. **Ongoing:** Monitor emotional/intuitive factors and adjust approach as needed`;
+    }
+
+    function generateRiskMitigation(perspectives) {
+      return `Key risks identified in Black Hat analysis should be mitigated through:
+- Systematic monitoring and early warning systems
+- Contingency planning for identified failure modes
+- Pilot testing of higher-risk initiatives
+- Regular review and adjustment based on Red Hat intuitive concerns`;
+    }
+
+    function generateSuccessMetrics(perspectives) {
+      return `Success should be measured through:
+- Objective metrics aligned with White Hat factual requirements
+- Stakeholder satisfaction addressing Red Hat emotional factors
+- Risk incident tracking per Black Hat identified concerns
+- Value realization per Yellow Hat benefit projections
+- Innovation adoption from Green Hat creative alternatives
+- Process efficiency per Blue Hat systematic approach`;
+    }
+
+    function generateFinalAssessment(perspectives, semaphore) {
+      return `The comprehensive Six Thinking Hats analysis provides strong foundation for informed decision-making on "${semaphore.topic}". All major perspectives have been systematically considered, conflicts identified and addressed, and a balanced path forward established. Confidence level: HIGH based on thorough multi-perspective analysis.`;
+    }
+
+    function generateNextSteps(perspectives) {
+      return `**Immediate Actions:**
+1. Review and validate this synthesis with key stakeholders
+2. Develop detailed implementation plan based on the phased approach
+3. Establish monitoring systems for identified risks and success metrics
+4. Begin Phase 1 implementation with highest-priority, well-supported initiatives
+
+**Medium-term Actions:**
+- Implement risk mitigation strategies
+- Pilot test creative alternatives  
+- Monitor progress against success metrics
+
+**Long-term Actions:**
+- Regular review and adjustment based on outcomes
+- Documentation of lessons learned for future similar decisions`;
+    }
+
+    /**
+     * Generate perspectives summary for synthesis workspace display
+     */
+    function generatePerspectivesSummary(perspectives) {
+      const hatNames = {
+        white_hat: '🤍 **White Hat** - Facts & Data',
+        red_hat: '❤️ **Red Hat** - Emotions & Intuition',
+        black_hat: '🖤 **Black Hat** - Caution & Problems',
+        yellow_hat: '💛 **Yellow Hat** - Benefits & Optimism',
+        green_hat: '💚 **Green Hat** - Creativity & Alternatives',
+        blue_hat: '💙 **Blue Hat** - Process & Next Steps'
+      };
+
+      let summary = '';
+      for (const [hatFile, content] of Object.entries(perspectives)) {
+        const hatName = hatNames[hatFile] || hatFile;
+        const preview = content.length > 200 ? content.substring(0, 200) + '...' : content;
+        summary += `${hatName}\n${preview}\n\n`;
+      }
+      return summary;
+    }
+
+    /**
+     * Generate step-specific guidance for synthesis process
+     */
+    function generateSynthesisStepGuidance(step, topic) {
+      const stepGuidance = {
+        conflict_identification: `🔍 **CONFLICT IDENTIFICATION GUIDANCE:**
+
+Before analyzing, focus on:
+- Where do perspectives contradict or tension exist?
+- Which insights are incompatible with others?
+- What trade-offs must be resolved?
+- Where do different hats point to different conclusions?
+
+For "${topic}":
+Review all six perspective analyses and identify the key tensions that need resolution. Look for direct contradictions, competing priorities, and areas where different perspectives suggest incompatible actions.
+
+**Think systematically about conflicts. Focus on tensions that require resolution.**`,
+
+        priority_weighting: `⚖️ **PRIORITY WEIGHTING GUIDANCE:**
+
+Before analyzing, focus on:
+- Which factors are most critical for success?
+- What are the highest-impact considerations?
+- Which insights have strongest evidence support?
+- What matters most given constraints and context?
+
+For "${topic}":
+Evaluate the relative importance of insights from all perspectives. Consider which factors are make-or-break, which have strongest evidence, and which align with strategic priorities.
+
+**Think strategically about importance. Focus on impact and criticality.**`,
+
+        integration: `🔗 **INTEGRATION GUIDANCE:**
+
+Before analyzing, focus on:
+- Which insights complement and reinforce each other?
+- How can compatible elements be combined?
+- What themes emerge across multiple perspectives?
+- Where do different hats point to similar conclusions?
+
+For "${topic}":
+Identify insights that work together and can be combined into coherent themes. Look for reinforcing patterns across perspectives and ways to synthesize compatible recommendations.
+
+**Think holistically about combination. Focus on synergies and reinforcement.**`,
+
+        recommendation_generation: `🎯 **RECOMMENDATION GENERATION GUIDANCE:**
+
+Before analyzing, focus on:
+- What unified recommendation emerges from the integration?
+- How do you balance competing factors optimally?
+- What decision best serves all legitimate concerns?
+- What action plan addresses the most critical needs?
+
+For "${topic}":
+Create a unified recommendation that incorporates the strongest insights while addressing identified conflicts. Balance competing priorities and propose a coherent path forward.
+
+**Think decisively about solutions. Focus on unified, actionable recommendations.**`,
+
+        implementation_planning: `🚀 **IMPLEMENTATION PLANNING GUIDANCE:**
+
+Before analyzing, focus on:
+- How should the recommendation be executed?
+- What are the practical steps and timeline?
+- What resources and capabilities are needed?
+- How do you manage risks during implementation?
+
+For "${topic}":
+Develop a practical implementation approach for your recommendation. Consider sequencing, resource requirements, risk mitigation, and success metrics.
+
+**Think practically about execution. Focus on feasible, systematic implementation.**`
+      };
+
+      return stepGuidance[step] + `
+
+🎯 **Now use complete_synthesis_step to submit your ${step.replace(/_/g, ' ').toUpperCase()} analysis following this guidance approach.**`;
+    }
+
+    /**
+     * Generate final synthesis document when all steps complete
+     */
+    async function generateFinalSynthesisDocument(semaphore, analysisDir) {
+      try {
+        // Read all synthesis step files
+        const stepFiles = ['conflict_identification', 'priority_weighting', 'integration', 'recommendation_generation', 'implementation_planning'];
+        const synthesesSteps = {};
+        
+        for (const stepFile of stepFiles) {
+          try {
+            const content = await fs.readFile(path.join(analysisDir, `synthesis_${stepFile}.md`), 'utf8');
+            synthesesSteps[stepFile] = content;
+          } catch (error) {
+            console.error(`Warning: Could not read synthesis_${stepFile}.md: ${error.message}`);
+            synthesesSteps[stepFile] = `Content not available`;
+          }
+        }
+
+        const finalSynthesis = `# Critical Thinking Final Synthesis: ${semaphore.topic}
+
+**Project:** ${semaphore.projectName}  
+**Analysis ID:** ${semaphore.analysisId}  
+**Synthesis Completed:** ${semaphore.synthesis.completedAt}
+
+## Executive Summary
+
+This final synthesis integrates systematic analysis from Six Thinking Hats perspectives through a structured 5-step synthesis process for: "${semaphore.topic}"
+
+---
+
+## Synthesis Process Results
+
+### Step 1: Conflict Identification
+${extractStepContent(synthesesSteps.conflict_identification)}
+
+### Step 2: Priority Weighting  
+${extractStepContent(synthesesSteps.priority_weighting)}
+
+### Step 3: Integration
+${extractStepContent(synthesesSteps.integration)}
+
+### Step 4: Recommendation Generation
+${extractStepContent(synthesesSteps.recommendation_generation)}
+
+### Step 5: Implementation Planning
+${extractStepContent(synthesesSteps.implementation_planning)}
+
+---
+
+## Comprehensive Decision Framework
+
+This systematic critical thinking analysis provides:
+
+✅ **Complete perspective coverage** - All Six Thinking Hats systematically analyzed  
+✅ **Conflict resolution** - Key tensions identified and addressed  
+✅ **Priority-based decision making** - Factors weighted by importance and impact  
+✅ **Integrated insights** - Compatible elements combined coherently  
+✅ **Unified recommendation** - Clear, actionable path forward  
+✅ **Implementation roadmap** - Practical execution approach  
+
+**Confidence Level:** HIGH based on systematic multi-perspective analysis and structured synthesis process.
+
+---
+
+## Final Assessment
+
+The comprehensive critical thinking analysis and synthesis provides a robust foundation for informed decision-making on "${semaphore.topic}". All major perspectives have been systematically considered, conflicts identified and resolved, priorities weighted, insights integrated, and a unified path forward established with practical implementation guidance.
+
+**Decision Quality:** Maximized through systematic analysis and structured synthesis methodology.
+
+---
+
+*This final synthesis was generated using Cursor-Cortex Enhanced Critical Thinking Analysis*  
+*Systematic Six Thinking Hats + Stepped Synthesis completed on: ${new Date(semaphore.synthesis.completedAt).toLocaleString()}*
+`;
+
+        return finalSynthesis;
+      } catch (error) {
+        console.error('Error generating final synthesis document:', error.message);
+        return `# Critical Thinking Final Synthesis: ${semaphore.topic}
+
+**Error generating comprehensive synthesis:** ${error.message}
+
+Please check individual synthesis step files in the analysis directory.
+`;
+      }
+    }
+
+    /**
+     * Extract step content from synthesis step file
+     */
+    function extractStepContent(stepContent) {
+      if (!stepContent || stepContent === 'Content not available') {
+        return 'Step content not available.';
+      }
+      
+      // Extract the step analysis section
+      const analysisMatch = stepContent.match(/## Step Analysis\s*([\s\S]*?)(?=\n---|\$)/);
+      if (analysisMatch && analysisMatch[1]) {
+        return analysisMatch[1].trim();
+      }
+      
+      // Fallback to content after first header
+      const lines = stepContent.split('\n');
+      const contentStart = lines.findIndex(line => line.startsWith('## Step Analysis')) + 1;
+      if (contentStart > 0 && contentStart < lines.length) {
+        return lines.slice(contentStart).join('\n').trim();
+      }
+      
+      return 'Could not extract step content.';
     }
 
     // Get entries since last commit separator
@@ -4035,6 +4497,19 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             green: { completed: false, completedAt: null },
             blue: { completed: false, completedAt: null }
           },
+          synthesis: {
+            spaceRequested: false,
+            spaceCreatedAt: null,
+            steps: {
+              conflict_identification: { completed: false, completedAt: null, guidanceRequested: false },
+              priority_weighting: { completed: false, completedAt: null, guidanceRequested: false },
+              integration: { completed: false, completedAt: null, guidanceRequested: false },
+              recommendation_generation: { completed: false, completedAt: null, guidanceRequested: false },
+              implementation_planning: { completed: false, completedAt: null, guidanceRequested: false }
+            },
+            completed: false,
+            completedAt: null
+          },
           isComplete: false,
           completedAt: null
         };
@@ -4133,6 +4608,7 @@ This analysis requires completion of all six perspectives before final decision:
             .filter(([_, data]) => data.completed);
           const missing = Object.entries(semaphore.perspectives)
             .filter(([_, data]) => !data.completed);
+          const allPerspectivesComplete = missing.length === 0;
           
           let statusReport = `🧠 **Critical Thinking Analysis Status**
 
@@ -4141,31 +4617,60 @@ This analysis requires completion of all six perspectives before final decision:
 **Project:** ${projectName}  
 **Created:** ${new Date(semaphore.createdAt).toLocaleString()}
 
+## Phase 1: Perspective Gathering
 **Progress:** ${completed.length}/6 perspectives completed
 
-## ✅ Completed Perspectives:
+### ✅ Completed Perspectives:
 ${completed.length > 0 ? 
   completed.map(([perspective, data]) => 
     `- ${perspectiveNames[perspective]} - ${new Date(data.completedAt).toLocaleString()}`
   ).join('\n') : 
   '(None completed yet)'}
 
-## ❌ Missing Perspectives:
+### ❌ Missing Perspectives:
 ${missing.length > 0 ?
   missing.map(([perspective]) => 
     `- ${perspectiveNames[perspective]} - **REQUIRED**`
   ).join('\n') :
-  '(All perspectives complete!)'}
+  '✅ All perspectives complete!'}
+
+## Phase 2: Synthesis & Integration
+**Status:** ${semaphore.synthesis && semaphore.synthesis.completed ? 
+  `✅ Complete - ${new Date(semaphore.synthesis.completedAt).toLocaleString()}` : 
+  (semaphore.synthesis && semaphore.synthesis.spaceRequested ? 
+    `🔄 In Progress - ${Object.values(semaphore.synthesis.steps).filter(s => s.completed).length}/5 steps complete` :
+    (allPerspectivesComplete ? '🔄 Ready for synthesis' : '⏸️ Waiting for all perspectives'))}
 `;
 
           if (semaphore.isComplete) {
-            statusReport += `\n\n🎉 **ANALYSIS COMPLETE!**  
+            statusReport += `\n\n🎉 **CRITICAL THINKING ANALYSIS COMPLETE!**  
 ✅ All Six Thinking Hats perspectives documented  
-📄 Final analysis available in final_analysis.md  
+✅ Comprehensive synthesis generated  
+📄 Full analysis available in synthesis.md  
 🎯 Ready for informed decision making!`;
+          } else if (allPerspectivesComplete && (!semaphore.synthesis || !semaphore.synthesis.completed)) {
+            if (!semaphore.synthesis.spaceRequested) {
+              statusReport += `\n\n🎯 **PERSPECTIVES COMPLETE - SYNTHESIS NEEDED!**  
+✅ All Six Thinking Hats documented  
+🔄 **Next Step:** Use request_synthesis_space to start stepped synthesis  
+⚠️ Analysis incomplete until synthesis phase completed`;
+            } else {
+              const completedSteps = Object.values(semaphore.synthesis.steps).filter(s => s.completed).length;
+              const remainingSteps = Object.entries(semaphore.synthesis.steps)
+                .filter(([_, data]) => !data.completed)
+                .map(([step]) => step.replace(/_/g, ' '))
+                .join(', ');
+              
+              statusReport += `\n\n🔄 **SYNTHESIS IN PROGRESS**  
+✅ All Six Thinking Hats documented  
+📊 Synthesis Progress: ${completedSteps}/5 steps complete  
+
+**Remaining Steps:** ${remainingSteps}  
+🔄 **Next:** Use request_synthesis_step_guidance for next step`;
+            }
           } else {
             statusReport += `\n\n⚠️  **Analysis incomplete** - ${missing.length} perspective${missing.length !== 1 ? 's' : ''} remaining  
-🚫 Final decision blocked until all hats complete  
+🚫 Synthesis blocked until all hats complete  
 
 **Next:** Use add_perspective to complete missing analyses`;
           }
@@ -4415,9 +4920,13 @@ This enforces proper Six Thinking Hats methodology!`,
             completedAt: new Date().toISOString()
           };
           
-          // Check if all perspectives complete
-          const allComplete = Object.values(semaphore.perspectives).every(p => p.completed);
-          if (allComplete && !semaphore.isComplete) {
+          // Check if all perspectives complete (but don't mark full analysis complete yet)
+          const allPerspectivesComplete = Object.values(semaphore.perspectives).every(p => p.completed);
+          // Analysis is only complete when all synthesis steps are also done
+          const allSynthesisStepsComplete = Object.values(semaphore.synthesis.steps).every(s => s.completed);
+          if (allPerspectivesComplete && allSynthesisStepsComplete && !semaphore.isComplete) {
+            semaphore.synthesis.completed = true;
+            semaphore.synthesis.completedAt = new Date().toISOString();
             semaphore.isComplete = true;
             semaphore.completedAt = new Date().toISOString();
           }
@@ -4462,12 +4971,8 @@ Your ${perspective.toUpperCase()} HAT analysis has been recorded.
 
 `;
           
-          if (allComplete) {
-            // Generate final analysis when complete
-            const finalAnalysis = await generateFinalAnalysis(semaphore, analysisDir);
-            await fs.writeFile(path.join(analysisDir, 'final_analysis.md'), finalAnalysis);
-            
-            result += `🎉 **CRITICAL THINKING ANALYSIS COMPLETE!**
+          if (allPerspectivesComplete) {
+            result += `🎯 **ALL PERSPECTIVES COMPLETE - READY FOR SYNTHESIS!**
 
 All Six Thinking Hats perspectives have been documented:
 ✅ White Hat (Facts & Data)  
@@ -4477,8 +4982,9 @@ All Six Thinking Hats perspectives have been documented:
 ✅ Green Hat (Creativity & Alternatives)  
 ✅ Blue Hat (Process & Next Steps)  
 
-📄 **Final comprehensive analysis generated**  
-🎯 **Ready for informed decision making!**`;
+🔄 **Next Step:** Use request_synthesis_space to start stepped synthesis process
+
+⚠️ **Analysis incomplete** until synthesis phase is completed`;
           } else {
             const remaining = Object.entries(semaphore.perspectives)
               .filter(([_, data]) => !data.completed)
@@ -4521,6 +5027,424 @@ Use check_critical_thinking_status to see detailed progress.`;
             {
               type: 'text',
               text: `Error adding perspective: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'request_synthesis_space') {
+      try {
+        const { analysisId, projectName } = toolArgs;
+        
+        console.error(`Requesting synthesis space: ${analysisId} for project: ${projectName}`);
+        
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
+        const semaphorePath = path.join(analysisDir, 'semaphore.json');
+        
+        try {
+          // Read and validate semaphore
+          const semaphoreContent = await fs.readFile(semaphorePath, 'utf8');
+          const semaphore = JSON.parse(semaphoreContent);
+          
+          // Check if all perspectives are complete
+          const allPerspectivesComplete = Object.values(semaphore.perspectives).every(p => p.completed);
+          if (!allPerspectivesComplete) {
+            const missing = Object.entries(semaphore.perspectives)
+              .filter(([_, data]) => !data.completed)
+              .map(([p]) => p)
+              .join(', ');
+            
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ **Cannot start synthesis - Missing perspectives!**
+
+All Six Thinking Hats perspectives must be completed before synthesis.
+
+**Missing:** ${missing}
+
+Complete all perspectives first using add_perspective, then return for synthesis.`,
+                },
+              ],
+            };
+          }
+          
+          // Check if synthesis space already requested
+          if (semaphore.synthesis.spaceRequested) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Synthesis space already created for this analysis. Use check_critical_thinking_status to see synthesis progress.`,
+                },
+              ],
+            };
+          }
+          
+          // Read all perspective files for display
+          const perspectiveFiles = ['white_hat', 'red_hat', 'black_hat', 'yellow_hat', 'green_hat', 'blue_hat'];
+          const perspectives = {};
+          
+          for (const hatFile of perspectiveFiles) {
+            try {
+              const content = await fs.readFile(path.join(analysisDir, `${hatFile}.md`), 'utf8');
+              perspectives[hatFile] = content;
+            } catch (error) {
+              console.error(`Warning: Could not read ${hatFile}.md: ${error.message}`);
+              perspectives[hatFile] = `Content not available`;
+            }
+          }
+          
+          // Update semaphore to mark synthesis space requested
+          semaphore.synthesis.spaceRequested = true;
+          semaphore.synthesis.spaceCreatedAt = new Date().toISOString();
+          
+          await fs.writeFile(semaphorePath, JSON.stringify(semaphore, null, 2));
+          
+          // Generate perspectives summary for synthesis workspace
+          const perspectivesSummary = generatePerspectivesSummary(perspectives);
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `🔄 **SYNTHESIS WORKSPACE CREATED!**
+
+**Analysis ID:** ${analysisId}  
+**Topic:** ${semaphore.topic}  
+**Project:** ${projectName}
+
+## 📋 All Perspectives Loaded:
+
+${perspectivesSummary}
+
+## 🎯 Stepped Synthesis Process:
+
+**5 Required Steps:**
+1. **Conflict Identification** - Identify tensions between perspectives
+2. **Priority Weighting** - Determine relative importance of factors  
+3. **Integration** - Combine compatible insights
+4. **Recommendation Generation** - Create unified recommendation
+5. **Implementation Planning** - Define execution approach
+
+**Next Steps:**
+1. Use request_synthesis_step_guidance to get guidance for first step
+2. Use complete_synthesis_step to complete each step systematically
+3. Complete all 5 steps for comprehensive synthesis
+
+⚠️ **0/5 synthesis steps completed** - Use request_synthesis_step_guidance to begin`,
+              },
+            ],
+          };
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Critical thinking analysis not found: ${analysisId} for project ${projectName}. Use request_critical_thinking_space to create it.`,
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+      } catch (error) {
+        console.error(`Error creating synthesis space: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error creating synthesis space: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'request_synthesis_step_guidance') {
+      try {
+        const { analysisId, projectName, step } = toolArgs;
+        
+        console.error(`Requesting synthesis guidance for step: ${step} in analysis: ${analysisId}`);
+        
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
+        const semaphorePath = path.join(analysisDir, 'semaphore.json');
+        
+        // Validate step
+        const validSteps = ['conflict_identification', 'priority_weighting', 'integration', 'recommendation_generation', 'implementation_planning'];
+        if (!validSteps.includes(step)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid step: ${step}. Must be one of: ${validSteps.join(', ')}`,
+              },
+            ],
+          };
+        }
+        
+        try {
+          // Read and update semaphore to track guidance request
+          const semaphoreContent = await fs.readFile(semaphorePath, 'utf8');
+          const semaphore = JSON.parse(semaphoreContent);
+          
+          // Check if synthesis space was requested
+          if (!semaphore.synthesis.spaceRequested) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ **Synthesis space not created!**
+
+You must call request_synthesis_space first to load all perspectives into synthesis workspace.
+
+**Proper workflow:**
+1. Complete all 6 perspectives using add_perspective
+2. Call request_synthesis_space to load perspectives
+3. Call request_synthesis_step_guidance for each step
+4. Call complete_synthesis_step for each step`,
+                },
+              ],
+            };
+          }
+          
+          // Check if step already completed
+          if (semaphore.synthesis.steps[step].completed) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Step "${step}" already completed for this synthesis. Each step can only be completed once.`,
+                },
+              ],
+            };
+          }
+          
+          // Mark guidance as requested for this step
+          semaphore.synthesis.steps[step].guidanceRequested = true;
+          await fs.writeFile(semaphorePath, JSON.stringify(semaphore, null, 2));
+          
+          // Generate step-specific guidance
+          const guidance = generateSynthesisStepGuidance(step, semaphore.topic);
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: guidance,
+              },
+            ],
+          };
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Critical thinking analysis not found: ${analysisId} for project ${projectName}. Use request_critical_thinking_space to create it.`,
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+      } catch (error) {
+        console.error(`Error requesting synthesis step guidance: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error requesting synthesis step guidance: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'complete_synthesis_step') {
+      try {
+        const { analysisId, projectName, step, analysis } = toolArgs;
+        
+        console.error(`Completing synthesis step: ${step} for analysis: ${analysisId}`);
+        
+        const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
+        const semaphorePath = path.join(analysisDir, 'semaphore.json');
+        
+        // Validate step
+        const validSteps = ['conflict_identification', 'priority_weighting', 'integration', 'recommendation_generation', 'implementation_planning'];
+        if (!validSteps.includes(step)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid step: ${step}. Must be one of: ${validSteps.join(', ')}`,
+              },
+            ],
+          };
+        }
+        
+        try {
+          // Read and update semaphore
+          const semaphoreContent = await fs.readFile(semaphorePath, 'utf8');
+          const semaphore = JSON.parse(semaphoreContent);
+          
+          // Check if step already completed
+          if (semaphore.synthesis.steps[step].completed) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Step "${step}" already completed for this synthesis. Each step can only be completed once.`,
+                },
+              ],
+            };
+          }
+          
+          // ENFORCE: Check if guidance was requested first
+          if (!semaphore.synthesis.steps[step].guidanceRequested) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ **GUIDANCE REQUIRED FIRST!**
+
+You must call request_synthesis_step_guidance for "${step}" before completing this step.
+
+🎯 **Proper workflow:**
+1. Call request_synthesis_step_guidance with step: "${step}"
+2. Read the step guidance carefully
+3. Complete synthesis work following that guidance approach
+4. Call complete_synthesis_step with your completed analysis
+
+This enforces systematic synthesis methodology!`,
+                },
+              ],
+            };
+          }
+          
+          // Update semaphore
+          semaphore.synthesis.steps[step] = {
+            completed: true,
+            completedAt: new Date().toISOString(),
+            guidanceRequested: true
+          };
+          
+          // Check if all synthesis steps complete
+          const allSynthesisStepsComplete = Object.values(semaphore.synthesis.steps).every(s => s.completed);
+          if (allSynthesisStepsComplete && !semaphore.synthesis.completed) {
+            semaphore.synthesis.completed = true;
+            semaphore.synthesis.completedAt = new Date().toISOString();
+            semaphore.isComplete = true;
+            semaphore.completedAt = new Date().toISOString();
+          }
+          
+          await fs.writeFile(semaphorePath, JSON.stringify(semaphore, null, 2));
+          
+          // Save step content
+          const stepNames = {
+            conflict_identification: 'Conflict Identification - Tensions Analysis',
+            priority_weighting: 'Priority Weighting - Importance Assessment',
+            integration: 'Integration - Compatible Insights Combination',
+            recommendation_generation: 'Recommendation Generation - Unified Decision',
+            implementation_planning: 'Implementation Planning - Execution Approach'
+          };
+          
+          const stepContent = `# ${stepNames[step]}
+
+**Analysis ID:** ${analysisId}  
+**Topic:** ${semaphore.topic}  
+**Project:** ${projectName}
+**Completed:** ${new Date().toISOString()}
+
+## Step Analysis
+
+${analysis}
+
+---
+*Part of systematic critical thinking synthesis process*
+`;
+          
+          await fs.writeFile(
+            path.join(analysisDir, `synthesis_${step}.md`),
+            stepContent
+          );
+          
+          let result = `✅ **${step.toUpperCase().replace(/_/g, ' ')} step completed successfully!**
+
+Your synthesis step analysis has been recorded.
+
+**Topic:** ${semaphore.topic}  
+**Analysis ID:** ${analysisId}
+
+`;
+          
+          if (allSynthesisStepsComplete) {
+            // Generate final synthesis document when all steps complete
+            const finalSynthesis = await generateFinalSynthesisDocument(semaphore, analysisDir);
+            await fs.writeFile(path.join(analysisDir, 'final_synthesis.md'), finalSynthesis);
+            
+            result += `🎉 **CRITICAL THINKING SYNTHESIS COMPLETE!**
+
+All 5 systematic synthesis steps have been completed:
+✅ Conflict Identification (Tensions Analysis)  
+✅ Priority Weighting (Importance Assessment)  
+✅ Integration (Compatible Insights Combination)  
+✅ Recommendation Generation (Unified Decision)  
+✅ Implementation Planning (Execution Approach)  
+
+📄 **Final comprehensive synthesis generated**  
+🎯 **Analysis fully complete and ready for decision making!**`;
+          } else {
+            const remaining = Object.entries(semaphore.synthesis.steps)
+              .filter(([_, data]) => !data.completed)
+              .map(([s]) => s.replace(/_/g, ' '))
+              .join(', ');
+            
+            result += `**Progress:** ${Object.values(semaphore.synthesis.steps).filter(s => s.completed).length}/5 synthesis steps complete
+
+**Still needed:** ${remaining}  
+Use check_critical_thinking_status to see detailed progress.`;
+          }
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Critical thinking analysis not found: ${analysisId} for project ${projectName}. Use request_critical_thinking_space to create it.`,
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+      } catch (error) {
+        console.error(`Error completing synthesis step: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error completing synthesis step: ${error.message}`,
             },
           ],
         };
