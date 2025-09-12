@@ -9,6 +9,7 @@ import {
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import AdmZip from 'adm-zip';
 import { findSimilarDocuments, isModelAvailable } from './embeddings-cpu.js';
 
 // Initialize the server
@@ -521,6 +522,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             analysis: { type: 'string', description: 'The completed analysis for this synthesis step' },
           },
           required: ['analysisId', 'projectName', 'step', 'analysis'],
+        },
+      },
+      {
+        name: 'generate_context_zip',
+        description: 'Package Cursor-Cortex knowledge into a portable ZIP archive for sharing between users and environments',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            outputPath: { type: 'string', description: 'Path where the ZIP file should be created (e.g., ./shared-context.zip)' },
+            projectNames: { type: 'array', items: { type: 'string' }, description: 'Array of project names to include (optional - if not provided, includes all projects)' },
+            includeTypes: { type: 'array', items: { type: 'string' }, description: 'Data types to include: branch-notes, context, tacit-knowledge, checklists, embeddings (default: all except embeddings)' },
+            includeBranches: { type: 'array', items: { type: 'string' }, description: 'Specific branch names to include (optional - if not provided, includes all branches)' },
+            description: { type: 'string', description: 'Description of what this context package contains' },
+          },
+          required: ['outputPath'],
+        },
+      },
+      {
+        name: 'unpack_context',
+        description: 'Import shared context package and place content in appropriate Cursor-Cortex storage locations with safe conflict resolution',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            zipPath: { type: 'string', description: 'Path to the context ZIP file to import' },
+            previewOnly: { type: 'boolean', description: 'If true, only show what would be imported without making changes (default: false)' },
+            conflictStrategy: { type: 'string', description: 'How to handle conflicts: merge (default), replace, skip', enum: ['merge', 'replace', 'skip'] },
+            createBackup: { type: 'boolean', description: 'Create backup before import (default: true)' },
+          },
+          required: ['zipPath'],
         },
       },
     ],
@@ -5445,6 +5475,463 @@ Use check_critical_thinking_status to see detailed progress.`;
             {
               type: 'text',
               text: `Error completing synthesis step: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'generate_context_zip') {
+      try {
+        const { outputPath, projectNames, includeTypes = ['branch-notes', 'context', 'tacit-knowledge', 'checklists'], includeBranches, description = '' } = toolArgs;
+        
+        console.error(`Generating context ZIP: ${outputPath}`);
+        
+        const storageRoot = getStorageRoot();
+        const zip = new AdmZip();
+        
+        // Create metadata
+        const metadata = {
+          version: '1.0.0',
+          createdAt: new Date().toISOString(),
+          description: description,
+          includedTypes: includeTypes,
+          projects: {},
+          cortexVersion: '1.2.0'
+        };
+        
+        // Get all available projects or use specified ones
+        let projectsToInclude = [];
+        if (projectNames && projectNames.length > 0) {
+          projectsToInclude = projectNames;
+        } else {
+          // Get all projects by scanning project subdirectories
+          const contextDir = path.join(storageRoot, 'context');
+          try {
+            const projectDirs = await fs.readdir(contextDir);
+            const projectSet = new Set();
+            for (const dir of projectDirs) {
+              const dirPath = path.join(contextDir, dir);
+              const stats = await fs.stat(dirPath);
+              if (stats.isDirectory()) {
+                projectSet.add(dir);
+              }
+            }
+            projectsToInclude = Array.from(projectSet);
+          } catch (error) {
+            console.error('No context directory found, checking other directories...');
+          }
+          
+          // Also check branch notes directory
+          const branchNotesDir = path.join(storageRoot, 'branch_notes');
+          try {
+            const projectDirs = await fs.readdir(branchNotesDir);
+            const projectSet = new Set(projectsToInclude);
+            for (const dir of projectDirs) {
+              const dirPath = path.join(branchNotesDir, dir);
+              const stats = await fs.stat(dirPath);
+              if (stats.isDirectory()) {
+                projectSet.add(dir);
+              }
+            }
+            projectsToInclude = Array.from(projectSet);
+          } catch (error) {
+            console.error('No branch notes directory found');
+          }
+        }
+        
+        if (projectsToInclude.length === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: 'No projects found to package. Make sure you have some Cursor-Cortex data first.',
+              },
+            ],
+          };
+        }
+        
+        // Package each data type for each project
+        for (const projectName of projectsToInclude) {
+          metadata.projects[projectName] = {
+            included: [],
+            branches: []
+          };
+          
+          // Package branch notes
+          if (includeTypes.includes('branch-notes')) {
+            const branchNotesProjectDir = path.join(storageRoot, 'branch_notes', projectName);
+            try {
+              const files = await fs.readdir(branchNotesProjectDir);
+              for (const file of files) {
+                if (file.endsWith('.md')) {
+                  const branchName = file.replace('.md', '');
+                  if (!includeBranches || includeBranches.includes(branchName)) {
+                    const content = await fs.readFile(path.join(branchNotesProjectDir, file), 'utf8');
+                    zip.addFile(`branch_notes/${projectName}/${file}`, Buffer.from(content, 'utf8'));
+                    metadata.projects[projectName].branches.push(branchName);
+                  }
+                }
+              }
+              if (metadata.projects[projectName].branches.length > 0) {
+                metadata.projects[projectName].included.push('branch-notes');
+              }
+            } catch (error) {
+              console.error(`No branch notes found for project ${projectName}`);
+            }
+          }
+          
+          // Package context files
+          if (includeTypes.includes('context')) {
+            const contextProjectDir = path.join(storageRoot, 'context', projectName);
+            try {
+              const files = await fs.readdir(contextProjectDir);
+              let contextFileCount = 0;
+              for (const file of files) {
+                if (file.endsWith('.md')) {
+                  const content = await fs.readFile(path.join(contextProjectDir, file), 'utf8');
+                  zip.addFile(`context/${projectName}/${file}`, Buffer.from(content, 'utf8'));
+                  contextFileCount++;
+                }
+              }
+              if (contextFileCount > 0) {
+                metadata.projects[projectName].included.push('context');
+              }
+            } catch (error) {
+              console.error(`No context files found for project ${projectName}`);
+            }
+          }
+          
+          // Package tacit knowledge
+          if (includeTypes.includes('tacit-knowledge')) {
+            const knowledgeProjectDir = path.join(storageRoot, 'knowledge', projectName);
+            try {
+              const files = await fs.readdir(knowledgeProjectDir);
+              let knowledgeFileCount = 0;
+              for (const file of files) {
+                if (file.endsWith('.md')) {
+                  const content = await fs.readFile(path.join(knowledgeProjectDir, file), 'utf8');
+                  zip.addFile(`knowledge/${projectName}/${file}`, Buffer.from(content, 'utf8'));
+                  knowledgeFileCount++;
+                }
+              }
+              if (knowledgeFileCount > 0) {
+                metadata.projects[projectName].included.push('tacit-knowledge');
+              }
+            } catch (error) {
+              console.error(`No tacit knowledge found for project ${projectName}`);
+            }
+          }
+          
+          // Package checklists
+          if (includeTypes.includes('checklists')) {
+            const checklistsDir = path.join(storageRoot, 'checklists', projectName);
+            try {
+              const files = await fs.readdir(checklistsDir);
+              for (const file of files) {
+                if (file.endsWith('.json')) {
+                  const content = await fs.readFile(path.join(checklistsDir, file), 'utf8');
+                  zip.addFile(`checklists/${projectName}/${file}`, Buffer.from(content, 'utf8'));
+                }
+              }
+              if (files.length > 0) {
+                metadata.projects[projectName].included.push('checklists');
+              }
+            } catch (error) {
+              console.error(`No checklists found for project ${projectName}`);
+            }
+          }
+          
+          // Package embeddings (if requested)
+          if (includeTypes.includes('embeddings')) {
+            const embeddingsDir = path.join(storageRoot, 'embeddings', projectName);
+            try {
+              const files = await fs.readdir(embeddingsDir);
+              for (const file of files) {
+                if (file.endsWith('.json')) {
+                  const content = await fs.readFile(path.join(embeddingsDir, file), 'utf8');
+                  zip.addFile(`embeddings/${projectName}/${file}`, Buffer.from(content, 'utf8'));
+                }
+              }
+              if (files.length > 0) {
+                metadata.projects[projectName].included.push('embeddings');
+              }
+            } catch (error) {
+              console.error(`No embeddings found for project ${projectName}`);
+            }
+          }
+        }
+        
+        // Add metadata file
+        zip.addFile('cortex-metadata.json', Buffer.from(JSON.stringify(metadata, null, 2), 'utf8'));
+        
+        // Write ZIP file
+        const zipBuffer = zip.toBuffer();
+        await fs.writeFile(outputPath, zipBuffer);
+        
+        const totalProjects = Object.keys(metadata.projects).length;
+        const totalTypes = new Set(Object.values(metadata.projects).flatMap(p => p.included)).size;
+        const zipSizeKB = Math.round(zipBuffer.length / 1024);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `✅ **Context ZIP package created successfully!**
+
+📦 **Package Details:**
+- **File:** ${outputPath}
+- **Size:** ${zipSizeKB} KB
+- **Projects:** ${totalProjects} (${Object.keys(metadata.projects).join(', ')})
+- **Data Types:** ${totalTypes} (${Array.from(new Set(Object.values(metadata.projects).flatMap(p => p.included))).join(', ')})
+- **Created:** ${metadata.createdAt}
+
+📋 **Package Contents:**
+${Object.entries(metadata.projects).map(([project, data]) => 
+  `- **${project}**: ${data.included.join(', ')} ${data.branches.length > 0 ? `(branches: ${data.branches.join(', ')})` : ''}`
+).join('\n')}
+
+🚀 **Ready for sharing!** Send this ZIP file to share your Cursor-Cortex knowledge context.
+
+💡 **To import:** Use \`unpack_context\` tool with the ZIP file path.`,
+            },
+          ],
+        };
+      } catch (error) {
+        console.error(`Error generating context ZIP: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error generating context ZIP: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'unpack_context') {
+      try {
+        const { zipPath, previewOnly = false, conflictStrategy = 'merge', createBackup = true } = toolArgs;
+        
+        console.error(`Unpacking context ZIP: ${zipPath} (preview: ${previewOnly})`);
+        
+        const storageRoot = getStorageRoot();
+        
+        // Read and validate ZIP file
+        let zip;
+        try {
+          zip = new AdmZip(zipPath);
+        } catch (error) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `❌ Cannot read ZIP file: ${zipPath}\nError: ${error.message}`,
+              },
+            ],
+          };
+        }
+        
+        const entries = zip.getEntries();
+        
+        // Find and read metadata
+        const metadataEntry = entries.find(entry => entry.entryName === 'cortex-metadata.json');
+        if (!metadataEntry) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `❌ Invalid Cursor-Cortex package: No metadata found in ${zipPath}`,
+              },
+            ],
+          };
+        }
+        
+        const metadata = JSON.parse(metadataEntry.getData().toString('utf8'));
+        
+        // Create backup if requested and not preview
+        let backupPath = null;
+        if (createBackup && !previewOnly) {
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          backupPath = path.join(storageRoot, `backup-${timestamp}.zip`);
+          
+          // Create backup of current state
+          const backupZip = new AdmZip();
+          const dataTypes = ['branch_notes', 'context', 'knowledge', 'checklists', 'embeddings'];
+          
+          for (const dataType of dataTypes) {
+            const dataDir = path.join(storageRoot, dataType);
+            try {
+              const files = await fs.readdir(dataDir, { recursive: true });
+              for (const file of files) {
+                const filePath = path.join(dataDir, file);
+                const stats = await fs.stat(filePath);
+                if (stats.isFile()) {
+                  const content = await fs.readFile(filePath, 'utf8');
+                  backupZip.addFile(`${dataType}/${file}`, Buffer.from(content, 'utf8'));
+                }
+              }
+            } catch (error) {
+              // Directory doesn't exist, skip
+            }
+          }
+          
+          const backupBuffer = backupZip.toBuffer();
+          await fs.writeFile(backupPath, backupBuffer);
+        }
+        
+        // Analyze what will be imported
+        const analysis = {
+          totalFiles: 0,
+          projects: {},
+          conflicts: [],
+          newFiles: [],
+          dataTypes: new Set()
+        };
+        
+        for (const entry of entries) {
+          if (entry.entryName === 'cortex-metadata.json') continue;
+          
+          analysis.totalFiles++;
+          const parts = entry.entryName.split('/');
+          const dataType = parts[0];
+          analysis.dataTypes.add(dataType);
+          
+          // Check for conflicts
+          const targetPath = path.join(storageRoot, entry.entryName);
+          try {
+            await fs.access(targetPath);
+            analysis.conflicts.push({
+              file: entry.entryName,
+              strategy: conflictStrategy
+            });
+          } catch (error) {
+            analysis.newFiles.push(entry.entryName);
+          }
+        }
+        
+        if (previewOnly) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `🔍 **Context Package Preview**
+
+📦 **Package Info:**
+- **Source:** ${zipPath}
+- **Created:** ${metadata.createdAt}
+- **Description:** ${metadata.description || 'No description'}
+- **Cortex Version:** ${metadata.cortexVersion || 'Unknown'}
+
+📊 **Import Analysis:**
+- **Total Files:** ${analysis.totalFiles}
+- **Data Types:** ${Array.from(analysis.dataTypes).join(', ')}
+- **Projects:** ${Object.keys(metadata.projects).join(', ')}
+- **New Files:** ${analysis.newFiles.length}
+- **Conflicts:** ${analysis.conflicts.length}
+
+${analysis.conflicts.length > 0 ? `⚠️ **Conflicts Found:**
+${analysis.conflicts.map(c => `- ${c.file} (strategy: ${c.strategy})`).join('\n')}
+` : ''}
+
+📋 **Projects in Package:**
+${Object.entries(metadata.projects).map(([project, data]) => 
+  `- **${project}**: ${data.included.join(', ')} ${data.branches.length > 0 ? `(branches: ${data.branches.join(', ')})` : ''}`
+).join('\n')}
+
+💡 **To import:** Run again with \`previewOnly: false\` to proceed with import.`,
+              },
+            ],
+          };
+        }
+        
+        // Perform actual import
+        let importedFiles = 0;
+        let skippedFiles = 0;
+        let mergedFiles = 0;
+        
+        for (const entry of entries) {
+          if (entry.entryName === 'cortex-metadata.json') continue;
+          
+          const targetPath = path.join(storageRoot, entry.entryName);
+          const targetDir = path.dirname(targetPath);
+          
+          // Ensure target directory exists
+          await fs.mkdir(targetDir, { recursive: true });
+          
+          const content = entry.getData().toString('utf8');
+          
+          // Check if file exists
+          let fileExists = false;
+          try {
+            await fs.access(targetPath);
+            fileExists = true;
+          } catch (error) {
+            // File doesn't exist
+          }
+          
+          if (fileExists) {
+            if (conflictStrategy === 'skip') {
+              skippedFiles++;
+              continue;
+            } else if (conflictStrategy === 'replace') {
+              await fs.writeFile(targetPath, content);
+              importedFiles++;
+            } else if (conflictStrategy === 'merge') {
+              // Merge strategy: for branch notes, append; for others, replace with timestamp
+              if (entry.entryName.includes('branch_notes/')) {
+                const existingContent = await fs.readFile(targetPath, 'utf8');
+                const mergedContent = existingContent + '\n\n---\n**IMPORTED FROM SHARED CONTEXT**\n---\n\n' + content;
+                await fs.writeFile(targetPath, mergedContent);
+                mergedFiles++;
+              } else {
+                // For other files, create timestamped version
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const newPath = targetPath.replace(/(\.[^.]+)$/, `_imported_${timestamp}$1`);
+                await fs.writeFile(newPath, content);
+                importedFiles++;
+              }
+            }
+          } else {
+            await fs.writeFile(targetPath, content);
+            importedFiles++;
+          }
+        }
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `✅ **Context import completed successfully!**
+
+📦 **Import Summary:**
+- **Source:** ${zipPath}
+- **Files Imported:** ${importedFiles}
+- **Files Merged:** ${mergedFiles}
+- **Files Skipped:** ${skippedFiles}
+- **Projects:** ${Object.keys(metadata.projects).join(', ')}
+- **Data Types:** ${Array.from(analysis.dataTypes).join(', ')}
+
+${backupPath ? `🛡️ **Backup Created:** ${backupPath}
+💡 To restore from backup if needed, use \`unpack_context\` with the backup ZIP.
+` : ''}
+
+🎉 **Shared knowledge successfully integrated into your Cursor-Cortex!**
+
+🔄 **Regenerate embeddings** (if tacit knowledge was imported):
+Run semantic search tools to update embeddings for new content.`,
+            },
+          ],
+        };
+      } catch (error) {
+        console.error(`Error unpacking context: ${error.message}`);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error unpacking context: ${error.message}`,
             },
           ],
         };
