@@ -55,8 +55,10 @@ Based on our company knowledge doc about API security, let's check the middlewar
 
 ### 1. Install Dependencies
 ```bash
-npm install
+npm install --legacy-peer-deps
 ```
+
+> **Note:** The `--legacy-peer-deps` flag is required due to TensorFlow.js peer dependency conflicts between v3.x and v4.x versions.
 
 ### 2. Get Full Path
 ```bash
