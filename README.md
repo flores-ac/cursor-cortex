@@ -92,8 +92,7 @@ Create or edit `~/.cursor/mcp.json`:
       "tools": [
         "update_branch_note", 
         "add_commit_separator",
-        "filter_branch_note",
-        "read_branch_note", 
+        "read_branch_notes",
         "update_context_file", 
         "read_context_file",
         "list_context_files", 
@@ -101,6 +100,7 @@ Create or edit `~/.cursor/mcp.json`:
         "generate_jira_comment", 
         "create_tacit_knowledge",
         "read_tacit_knowledge", 
+        "search_branch_notes",
         "create_completion_checklist",
         "read_checklist",
         "update_checklist",
@@ -109,10 +109,19 @@ Create or edit `~/.cursor/mcp.json`:
         "clear_branch_note",
         "list_all_branch_notes",
         "enhanced_branch_survey",
+        "comprehensive_knowledge_search",
         "construct_project_narrative",
         "timeline_reconstruction",
         "context_sync_guidance",
-        "analyze_documentation_gaps"
+        "analyze_documentation_gaps",
+        "migrate_context_files",
+        "request_critical_thinking_space",
+        "check_critical_thinking_status",
+        "request_thinking_guidance",
+        "add_perspective",
+        "request_synthesis_space",
+        "request_synthesis_step_guidance",
+        "complete_synthesis_step"
       ],
       "stdio": true,
       "env": {
@@ -121,6 +130,8 @@ Create or edit `~/.cursor/mcp.json`:
     },
 ```
 **Replace `/YOUR/FULL/PATH/TO/cursor-cortex/` with the output from step 2**
+
+> **Note:** This configuration is for Cursor-Cortex v1.2.0+. If you're using an older version, some tools may not be available. Check your `package.json` version and consider updating.
 
 ### 5. Restart Cursor
 Close and reopen Cursor completely.
@@ -264,6 +275,8 @@ Analyze and synthesize project knowledge:
 
 - `create_tacit_knowledge` - Document solutions for future reference
 - `read_tacit_knowledge` - Search knowledge across all projects with tags and content search
+- `search_branch_notes` - Search branch notes across projects with semantic search
+- `comprehensive_knowledge_search` - Global semantic search across ALL Cursor-Cortex knowledge
 
 </details>
 
@@ -282,6 +295,7 @@ Analyze and synthesize project knowledge:
 
 - `archive_branch_note` - Archive completed work
 - `clear_branch_note` - Reset branch documentation
+- `migrate_context_files` - Migrate existing context files to Smart Hybrid Context System
 
 </details>
 
@@ -294,6 +308,19 @@ Analyze and synthesize project knowledge:
 - `timeline_reconstruction` - Extract chronological timeline data from branch notes and commit separators
 - `context_sync_guidance` - Get contextual guidance for syncing project contexts based on timeline data
 - `analyze_documentation_gaps` - Analyze folder structure to identify documentation needs and auto-create checklists
+
+</details>
+
+<details>
+<summary><strong>🎭 Critical Thinking & Six Thinking Hats</strong></summary>
+
+- `request_critical_thinking_space` - Create systematic analysis workspace using Six Thinking Hats methodology
+- `check_critical_thinking_status` - Check completion status of critical thinking analysis
+- `request_thinking_guidance` - Get guidance for specific Six Thinking Hats perspectives
+- `add_perspective` - Add specific perspective analysis to critical thinking workspace
+- `request_synthesis_space` - Load perspectives into synthesis workspace for integration
+- `request_synthesis_step_guidance` - Get detailed guidance for synthesis steps
+- `complete_synthesis_step` - Complete specific synthesis step and update process
 
 </details>
 
