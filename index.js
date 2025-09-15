@@ -91,21 +91,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             description: { type: 'string', description: 'Description of what the feature or pipeline does' },
             additionalInfo: { type: 'string', description: 'Any additional information to include' },
             relatedProjects: { type: 'array', description: 'List of related projects' },
+            deploymentInstructions: { type: 'string', description: 'Deployment instructions and references (avoid secrets - use references to files/commands)' },
             scope: { type: 'string', description: 'Context scope: "project" for shared project context, "branch" for branch-specific context', enum: ['project', 'branch'] },
           },
           required: ['branchName', 'projectName', 'title', 'description'],
         },
       },
       {
-        name: 'read_context_file',
-        description: 'Read the context file for the current branch - shows both project and branch context',
+        name: 'read_project_context',
+        description: 'Read project context file (branch-agnostic, shared across all branches)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectName: { type: 'string', description: 'Name of the project' },
+            currentProject: { type: 'string', description: 'Name of the current project (for cross-project warning)' },
+          },
+          required: ['projectName'],
+        },
+      },
+      {
+        name: 'read_branch_context',
+        description: 'Read branch-specific context file (current branch context only)',
         inputSchema: {
           type: 'object',
           properties: {
             branchName: { type: 'string', description: 'Name of the branch' },
             projectName: { type: 'string', description: 'Name of the project' },
             currentProject: { type: 'string', description: 'Name of the current project (for cross-project warning)' },
-            scope: { type: 'string', description: 'Context scope: "project", "branch", or "both" (default)', enum: ['project', 'branch', 'both'] },
           },
           required: ['branchName', 'projectName'],
         },
@@ -1542,7 +1554,7 @@ All changes:
       }
     } else if (name === 'update_context_file') {
       try {
-        const { branchName, projectName, title, description, additionalInfo, relatedProjects, scope = 'project' } = toolArgs;
+        const { branchName, projectName, title, description, additionalInfo, relatedProjects, deploymentInstructions, scope = 'project' } = toolArgs;
         
         // Validate scope parameter
         const validScopes = ['project', 'branch'];
@@ -1580,6 +1592,10 @@ All changes:
         // Format the context file
         let content = `# ${title}\n\n`;
         content += `## Description\n${description}\n\n`;
+        
+        if (deploymentInstructions) {
+          content += `## Deployment\n${deploymentInstructions}\n\n`;
+        }
         
         if (additionalInfo) {
           content += `## Additional Information\n${additionalInfo}\n\n`;
@@ -1620,9 +1636,19 @@ All changes:
           ],
         };
       }
-    } else if (name === 'read_context_file') {
+    } else if (name === 'read_project_context') {
+      // Read project context only (branch-agnostic)
+      const { projectName, currentProject } = toolArgs;
+      const contextArgs = {
+        branchName: 'main', // Default branch for project context
+        projectName,
+        currentProject,
+        scope: 'project'
+      };
+      
+      // Reuse existing read_context_file logic
       try {
-        const { branchName, projectName, currentProject, scope = 'both' } = toolArgs;
+        const { branchName, projectName: proj, currentProject: curr, scope = 'project' } = contextArgs;
         
         // Validate scope parameter
         const validScopes = ['project', 'branch', 'both'];
@@ -1638,10 +1664,10 @@ All changes:
           };
         }
         
-        console.error(`Reading context files for project "${projectName}", branch "${branchName}", scope "${scope}"`);
+        console.error(`Reading project context for project "${proj}"`);
         
         // Check if accessing external project context
-        const isExternal = currentProject && isExternalContextFile(currentProject, projectName);
+        const isExternal = curr && isExternalContextFile(curr, proj);
         
         // Prepare response content
         const responseContent = [];
@@ -1650,58 +1676,38 @@ All changes:
         if (isExternal) {
           responseContent.push({
             type: 'text',
-            text: `⚠️ WARNING: You are accessing a context file from project "${projectName}" while working in project "${currentProject}". ⚠️\n\n`,
+            text: `⚠️ WARNING: You are accessing a context file from project "${proj}" while working in project "${curr}". ⚠️\n\n`,
           });
         }
         
         let hasContent = false;
-        let resultText = `[Project: ${projectName}]\n\n`;
+        let resultText = `[Project: ${proj}]\n\n`;
         
-        // Read project context if requested
-        if (scope === 'project' || scope === 'both') {
-          const projectFilePath = getContextFilePath(projectName, branchName, 'project');
-          try {
-            const projectContent = await fs.readFile(projectFilePath, 'utf-8');
-            resultText += `# 📋 PROJECT CONTEXT (Shared)\n\n${projectContent}\n\n`;
-            hasContent = true;
-          } catch (error) {
-            if (error.code === 'ENOENT') {
-              if (scope === 'project') {
-                resultText += `# 📋 PROJECT CONTEXT (Shared)\n\n*No shared project context exists yet. Use update_context_file with scope="project" to create one.*\n\n`;
-              } else {
-                resultText += `# 📋 PROJECT CONTEXT (Shared)\n\n*No shared project context available.*\n\n`;
-              }
-            } else {
-              throw error;
-            }
+        // Read project context
+        const projectContextPath = getContextFilePath(proj, branchName, 'project');
+        try {
+          const projectContent = await fs.readFile(projectContextPath, 'utf-8');
+          resultText += `# 📋 PROJECT CONTEXT (Shared)\n\n${projectContent}`;
+          hasContent = true;
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            resultText += `# 📋 PROJECT CONTEXT (Shared)\n\n*No project context file found at: ${projectContextPath}*\n\n`;
+          } else {
+            console.error('Error reading project context:', error);
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `Error reading project context: ${error.message}`,
+                },
+              ],
+            };
           }
         }
         
-        // Read branch context if requested
-        if (scope === 'branch' || scope === 'both') {
-          const branchFilePath = getContextFilePath(projectName, branchName, 'branch');
-          try {
-            const branchContent = await fs.readFile(branchFilePath, 'utf-8');
-            resultText += `# 🌿 BRANCH CONTEXT (${branchName})\n\n${branchContent}\n\n`;
-            hasContent = true;
-          } catch (error) {
-            if (error.code === 'ENOENT') {
-              if (scope === 'branch') {
-                resultText += `# 🌿 BRANCH CONTEXT (${branchName})\n\n*No branch-specific context exists yet. Use update_context_file with scope="branch" to create one.*\n\n`;
-              } else {
-                resultText += `# 🌿 BRANCH CONTEXT (${branchName})\n\n*No branch-specific context available.*\n\n`;
-              }
-            } else {
-              throw error;
-            }
-          }
-        }
-        
-        if (!hasContent && scope === 'both') {
-          resultText += `*No context files exist yet for project "${projectName}". Use update_context_file to create context.*\n\n`;
-          resultText += `💡 **Smart Hybrid Context System:**\n`;
-          resultText += `- Default: \`scope="project"\` for shared project context\n`;
-          resultText += `- Branch-specific: \`scope="branch"\` when needed\n`;
+        if (!hasContent) {
+          resultText += `*No context information available for project "${proj}".*\n`;
         }
         
         responseContent.push({
@@ -1718,7 +1724,100 @@ All changes:
           content: [
             {
               type: 'text',
-              text: `Error reading context file: ${error.message}`,
+              text: `Error reading project context: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'read_branch_context') {
+      // Read branch context only (branch-specific)
+      const { branchName, projectName, currentProject } = toolArgs;
+      const contextArgs = {
+        branchName,
+        projectName,
+        currentProject,
+        scope: 'branch'
+      };
+      
+      // Reuse existing read_context_file logic
+      try {
+        const { branchName: branch, projectName: proj, currentProject: curr, scope = 'branch' } = contextArgs;
+        
+        // Validate scope parameter
+        const validScopes = ['project', 'branch', 'both'];
+        if (scope && !validScopes.includes(scope)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Error: Invalid scope "${scope}". Valid scopes are: ${validScopes.join(', ')}`,
+              },
+            ],
+          };
+        }
+        
+        console.error(`Reading branch context for project "${proj}", branch "${branch}"`);
+        
+        // Check if accessing external project context
+        const isExternal = curr && isExternalContextFile(curr, proj);
+        
+        // Prepare response content
+        const responseContent = [];
+        
+        // Add warning if accessing external project
+        if (isExternal) {
+          responseContent.push({
+            type: 'text',
+            text: `⚠️ WARNING: You are accessing a context file from project "${proj}" while working in project "${curr}". ⚠️\n\n`,
+          });
+        }
+        
+        let hasContent = false;
+        let resultText = `[Project: ${proj}]\n\n`;
+        
+        // Read branch context
+        const branchContextPath = getContextFilePath(proj, branch, 'branch');
+        try {
+          const branchContent = await fs.readFile(branchContextPath, 'utf-8');
+          resultText += `# 🌿 BRANCH CONTEXT (${branch})\n\n${branchContent}`;
+          hasContent = true;
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            resultText += `# 🌿 BRANCH CONTEXT (${branch})\n\n*No branch-specific context file found at: ${branchContextPath}*\n\n`;
+          } else {
+            console.error('Error reading branch context:', error);
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `Error reading branch context: ${error.message}`,
+                },
+              ],
+            };
+          }
+        }
+        
+        if (!hasContent) {
+          resultText += `*No branch context information available for "${branch}" in project "${proj}".*\n`;
+        }
+        
+        responseContent.push({
+          type: 'text',
+          text: resultText,
+        });
+        
+        return {
+          content: responseContent,
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error reading branch context: ${error.message}`,
             },
           ],
         };

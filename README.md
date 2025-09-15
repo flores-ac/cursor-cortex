@@ -96,7 +96,8 @@ Create or edit `~/.cursor/mcp.json`:
         "add_commit_separator",
         "read_branch_notes",
         "update_context_file", 
-        "read_context_file",
+        "read_project_context",
+        "read_branch_context", 
         "list_context_files", 
         "generate_commit_message", 
         "generate_jira_comment", 
@@ -267,7 +268,8 @@ Analyze and synthesize project knowledge:
 <summary><strong>📋 Project Documentation</strong></summary>
 
 - `update_context_file` - Document project goals and decisions
-- `read_context_file` - Access project information
+- `read_project_context` - Read branch-agnostic project context only
+- `read_branch_context` - Read branch-specific context only
 - `list_context_files` - Browse all project docs with cross-project warnings
 
 </details>
