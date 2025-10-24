@@ -10,7 +10,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import AdmZip from 'adm-zip';
-import { findSimilarDocuments, isModelAvailable } from './embeddings-cpu.js';
+import { findSimilarDocuments, isModelAvailable, generateEmbedding, storeEmbedding } from './embeddings-cpu.js';
 
 // Initialize the server
 const server = new Server(
@@ -81,18 +81,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'update_context_file',
-        description: 'Update the context file with information about the feature or pipeline',
+        description: 'Update the context file with information about the feature, pipeline, or project',
         inputSchema: {
           type: 'object',
           properties: {
             branchName: { type: 'string', description: 'Name of the branch' },
             projectName: { type: 'string', description: 'Name of the project' },
-            title: { type: 'string', description: 'Title of the feature or pipeline' },
-            description: { type: 'string', description: 'Description of what the feature or pipeline does' },
+            pipelineName: { type: 'string', description: 'Name of the pipeline (required when scope is pipeline)' },
+            title: { type: 'string', description: 'Title of the feature, pipeline, or project' },
+            description: { type: 'string', description: 'Description of what the feature, pipeline, or project does' },
+            schedule: { type: 'string', description: 'Pipeline schedule (for pipeline scope)' },
+            dependencies: { type: 'string', description: 'Pipeline dependencies (for pipeline scope)' },
+            relatedBranches: { type: 'array', description: 'Related branches (for pipeline scope)' },
             additionalInfo: { type: 'string', description: 'Any additional information to include' },
             relatedProjects: { type: 'array', description: 'List of related projects' },
             deploymentInstructions: { type: 'string', description: 'Deployment instructions and references (avoid secrets - use references to files/commands)' },
-            scope: { type: 'string', description: 'Context scope: "project" for shared project context, "branch" for branch-specific context', enum: ['project', 'branch'] },
+            scope: { type: 'string', description: 'Context scope: "project" for shared project context, "branch" for branch-specific context, "pipeline" for pipeline-specific context', enum: ['project', 'branch', 'pipeline'] },
           },
           required: ['branchName', 'projectName', 'title', 'description'],
         },
@@ -120,6 +124,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             currentProject: { type: 'string', description: 'Name of the current project (for cross-project warning)' },
           },
           required: ['branchName', 'projectName'],
+        },
+      },
+      {
+        name: 'read_pipeline_context',
+        description: 'Read pipeline-specific context file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectName: { type: 'string', description: 'Name of the project' },
+            pipelineName: { type: 'string', description: 'Name of the pipeline' },
+            currentProject: { type: 'string', description: 'Name of the current project (for cross-project warning)' },
+          },
+          required: ['projectName', 'pipelineName'],
         },
       },
       {
@@ -756,13 +773,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // }
     
     // Get path to context file
-    function getContextFilePath(projectName, branchName, scope = 'branch') {
+    function getContextFilePath(projectName, branchName, scope = 'branch', pipelineName = null) {
       const safeProjectName = projectName.replace(/[^a-zA-Z0-9-_]/g, '_');
       const safeBranchName = branchName.replace(/[^a-zA-Z0-9-_]/g, '_');
       
       if (scope === 'project') {
         // Smart hybrid: default to shared project context
         return path.join(getStorageRoot(), 'context', safeProjectName, 'project_context.md');
+      } else if (scope === 'pipeline') {
+        // Pipeline-specific context
+        const safePipelineName = pipelineName ? pipelineName.replace(/[^a-zA-Z0-9-_]/g, '_') : 'default';
+        return path.join(getStorageRoot(), 'context', safeProjectName, `pipeline_${safePipelineName}_context.md`);
       } else {
         // Branch-specific context (legacy format maintained for backward compatibility)
         return path.join(getStorageRoot(), 'context', safeProjectName, `${safeBranchName}_context.md`);
@@ -1476,6 +1497,35 @@ All changes:
         
         await fs.writeFile(filePath, content + newEntry);
         
+        // Generate and store embedding for updated branch note (async, don't block response)
+        try {
+          // Read the complete updated content for embedding
+          const fullContent = await fs.readFile(filePath, 'utf-8');
+          
+          // Extract meaningful text for embedding (first 20 lines of substantial content)
+          const lines = fullContent.split('\n').filter(line => line.trim());
+          const meaningfulLines = lines.filter(line => 
+            !line.startsWith('#') && 
+            !line.startsWith('---') &&
+            line.length > 20
+          ).slice(0, 20);
+          
+          const textContent = meaningfulLines.join(' ').substring(0, 1000);
+          const embeddingText = `Branch: ${branchName} Project: ${projectName} ${textContent}`;
+          
+          // Generate and store embedding using branch_notes_ project key
+          const embedding = await generateEmbedding(embeddingText);
+          const projectKey = `branch_notes_${projectName}`;
+          const documentName = branchName.replace(/[^a-zA-Z0-9-_]/g, '_'); // Sanitize filename
+          
+          await storeEmbedding(projectKey, documentName, embedding);
+          console.error(`✅ Generated embedding for branch note: ${projectKey}/${documentName}`);
+          
+        } catch (embeddingError) {
+          // Log embedding error but don't fail the main operation
+          console.error(`⚠️ Failed to generate embedding for branch note: ${embeddingError.message}`);
+        }
+        
         return {
           content: [
             {
@@ -1554,10 +1604,10 @@ All changes:
       }
     } else if (name === 'update_context_file') {
       try {
-        const { branchName, projectName, title, description, additionalInfo, relatedProjects, deploymentInstructions, scope = 'project' } = toolArgs;
+        const { branchName, projectName, pipelineName, title, description, schedule, dependencies, relatedBranches, additionalInfo, relatedProjects, deploymentInstructions, scope = 'project' } = toolArgs;
         
         // Validate scope parameter
-        const validScopes = ['project', 'branch'];
+        const validScopes = ['project', 'branch', 'pipeline'];
         if (scope && !validScopes.includes(scope)) {
           return {
             isError: true,
@@ -1570,7 +1620,7 @@ All changes:
           };
         }
         
-        const filePath = getContextFilePath(projectName, branchName, scope);
+        const filePath = getContextFilePath(projectName, branchName, scope, pipelineName);
         await ensureDirectoryExists(filePath);
         
         // Check for existing content and warn about overwrite
@@ -1593,6 +1643,25 @@ All changes:
         let content = `# ${title}\n\n`;
         content += `## Description\n${description}\n\n`;
         
+        // Pipeline-specific sections
+        if (scope === 'pipeline') {
+          if (schedule) {
+            content += `## Schedule\n${schedule}\n\n`;
+          }
+          
+          if (dependencies) {
+            content += `## Dependencies\n${dependencies}\n\n`;
+          }
+          
+          if (relatedBranches && Array.isArray(relatedBranches) && relatedBranches.length > 0) {
+            content += `## Related Branches\n`;
+            relatedBranches.forEach(branch => {
+              content += `- ${branch}\n`;
+            });
+            content += `\n`;
+          }
+        }
+        
         if (deploymentInstructions) {
           content += `## Deployment\n${deploymentInstructions}\n\n`;
         }
@@ -1612,7 +1681,11 @@ All changes:
         
         // Add metadata
         content += `---\nLast Updated: ${getFormattedDateTime()}\n`;
-        content += `Branch: ${branchName}\n`;
+        if (scope === 'pipeline') {
+          content += `Pipeline: ${pipelineName}\n`;
+        } else {
+          content += `Branch: ${branchName}\n`;
+        }
         content += `Project: ${projectName}\n`;
         
         await fs.writeFile(filePath, content);
@@ -1818,6 +1891,44 @@ All changes:
             {
               type: 'text',
               text: `Error reading branch context: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'read_pipeline_context') {
+      // Read pipeline context only (pipeline-specific)
+      const { projectName, pipelineName, currentProject } = toolArgs;
+      
+      try {
+        const filePath = getContextFilePath(projectName, 'main', 'pipeline', pipelineName);
+        const content = await fs.readFile(filePath, 'utf8');
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: content,
+            },
+          ],
+        };
+      } catch (error) {
+        if (error.code === 'ENOENT') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No pipeline context found for pipeline "${pipelineName}" in project "${projectName}".`,
+              },
+            ],
+          };
+        }
+        
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error reading pipeline context: ${error.message}`,
             },
           ],
         };
@@ -3219,86 +3330,140 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           projectsToSearch = [projectName];
         }
         
-        // Search through branch notes
-        for (const project of projectsToSearch) {
-          const projectBranchDir = path.join(branchNotesDir, project);
-          
+        // Search through branch notes using semantic or text search
+        if (semanticSearch) {
+          // Use findSimilarDocuments for efficient semantic search
           try {
-            const branchFiles = await fs.readdir(projectBranchDir);
-            const noteFiles = branchFiles.filter(file => file.endsWith('.md'));
+            const embeddingsModule = await import('./embeddings-cpu.js');
+            const findSimilarDocuments = embeddingsModule.findSimilarDocuments;
             
-            for (const noteFile of noteFiles) {
-              // Skip if specific branch requested and doesn't match
-              if (branchName && !noteFile.includes(branchName)) {
-                continue;
-              }
+            for (const project of projectsToSearch) {
+              const embeddingKey = `branch_notes_${project}`;
               
-              const notePath = path.join(projectBranchDir, noteFile);
-              const content = await fs.readFile(notePath, 'utf8');
+              // Find similar documents using stored embeddings
+              const vectorResults = await findSimilarDocuments(
+                searchTerm,
+                embeddingKey,
+                similarityThreshold,
+                100 // Get more results initially for filtering
+              );
               
-              // Extract branch name from filename
-              const branch = noteFile.replace('.md', '');
-              
-              // Apply date range filter if specified
-              if (dateRange) {
-                const [startDate, endDate] = dateRange.split(',');
-                // Simple date filtering - could be enhanced
-                if (startDate && !content.includes(startDate.substring(0, 7))) continue;
-              }
-              
-              // Check if we should use semantic or text search
-              let isMatch = false;
-              let similarity = 0;
-              let matchCount = 0;
-              
-              if (semanticSearch) {
+              // Process each result
+              for (const vectorResult of vectorResults) {
+                const branch = vectorResult.document;
+                
+                // Skip if specific branch requested and doesn't match
+                if (branchName && !branch.includes(branchName)) {
+                  continue;
+                }
+                
                 try {
-                  const { generateEmbedding, calculateCosineSimilarity } = require('./embeddings-cpu.js');
-                  const queryEmbedding = await generateEmbedding(searchTerm);
-                  const contentEmbedding = await generateEmbedding(content.substring(0, 5000));
-                  similarity = calculateCosineSimilarity(queryEmbedding, contentEmbedding);
-                  isMatch = similarity >= similarityThreshold;
-                } catch (vectorError) {
-                  console.error(`Vector search failed for ${project}/${branch}, using text search:`, vectorError.message);
-                  isMatch = content.toLowerCase().includes(searchTerm.toLowerCase());
+                  const notePath = path.join(branchNotesDir, project, `${branch}.md`);
+                  const content = await fs.readFile(notePath, 'utf8');
+                  
+                  // Apply date range filter if specified
+                  if (dateRange) {
+                    const [startDate, endDate] = dateRange.split(',');
+                    if (startDate && !content.includes(startDate.substring(0, 7))) continue;
+                  }
+                  
+                  // Extract context for display
+                  const lines = content.split('\n');
+                  
+                  // For semantic search, show first meaningful lines (keywords may not appear)
+                  // For preview, skip header and get first content lines
+                  const contentLines = lines.filter(line => {
+                    const trimmed = line.trim();
+                    return trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('---');
+                  });
+                  
+                  const context = contentLines.slice(0, 3).map(line => {
+                    const trimmed = line.trim();
+                    return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
+                  }).join(' | ');
+                  
+                  // Count keyword matches for reference (even in semantic search)
+                  const matchingLines = lines.filter(line => 
+                    line.toLowerCase().includes(searchTerm.toLowerCase())
+                  );
+                  const matchCount = matchingLines.length;
+                  
+                  results.push({
+                    project,
+                    branch,
+                    type: 'branch-note',
+                    context,
+                    path: notePath,
+                    matchCount,
+                    similarity: Math.round(vectorResult.similarity * 1000) / 10 // Convert to percentage
+                  });
+                } catch (error) {
+                  // Skip files that can't be read
                 }
-              } else {
-                isMatch = content.toLowerCase().includes(searchTerm.toLowerCase());
-              }
-              
-              if (isMatch) {
-                // Extract relevant context around the search term
-                const lines = content.split('\n');
-                const matchingLines = lines.filter(line => 
-                  line.toLowerCase().includes(searchTerm.toLowerCase())
-                );
-                matchCount = matchingLines.length;
-                
-                // Get first few matching entries with context
-                const context = matchingLines.slice(0, 3).map(line => {
-                  const trimmed = line.trim();
-                  return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
-                }).join(' | ');
-                
-                const result = {
-                  project,
-                  branch,
-                  type: 'branch-note',
-                  context,
-                  path: notePath,
-                  matchCount
-                };
-                
-                // Add similarity score if semantic search was used
-                if (semanticSearch && similarity > 0) {
-                  result.similarity = Math.round(similarity * 1000) / 10; // Convert to percentage
-                }
-                
-                results.push(result);
               }
             }
-          } catch (error) {
-            console.error(`Error searching project ${project}:`, error.message);
+          } catch (vectorError) {
+            console.error(`Semantic search failed, falling back to text search:`, vectorError.message);
+            semanticSearch = false; // Fall through to text search below
+          }
+        }
+        
+        // Text search (either requested or fallback from semantic failure)
+        if (!semanticSearch) {
+          for (const project of projectsToSearch) {
+            const projectBranchDir = path.join(branchNotesDir, project);
+            
+            try {
+              const branchFiles = await fs.readdir(projectBranchDir);
+              const noteFiles = branchFiles.filter(file => file.endsWith('.md'));
+              
+              for (const noteFile of noteFiles) {
+                const branch = noteFile.replace('.md', '');
+                
+                // Skip if specific branch requested and doesn't match
+                if (branchName && !branch.includes(branchName)) {
+                  continue;
+                }
+                
+                const notePath = path.join(projectBranchDir, noteFile);
+                const content = await fs.readFile(notePath, 'utf8');
+                
+                // Apply date range filter if specified
+                if (dateRange) {
+                  const [startDate, endDate] = dateRange.split(',');
+                  if (startDate && !content.includes(startDate.substring(0, 7))) continue;
+                }
+                
+                // Text matching
+                const isMatch = content.toLowerCase().includes(searchTerm.toLowerCase());
+                
+                if (isMatch) {
+                  // Extract relevant context around the search term
+                  const lines = content.split('\n');
+                  const matchingLines = lines.filter(line => 
+                    line.toLowerCase().includes(searchTerm.toLowerCase())
+                  );
+                  const matchCount = matchingLines.length;
+                  
+                  // Get first few matching entries with context
+                  const context = matchingLines.slice(0, 3).map(line => {
+                    const trimmed = line.trim();
+                    return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
+                  }).join(' | ');
+                  
+                  results.push({
+                    project,
+                    branch,
+                    type: 'branch-note',
+                    context,
+                    path: notePath,
+                    matchCount
+                  });
+                }
+              }
+            } catch (error) {
+              console.error(`Error searching project ${project}:`, error.message);
+            }
           }
         }
         
