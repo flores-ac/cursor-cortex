@@ -3345,13 +3345,24 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                 searchTerm,
                 embeddingKey,
                 similarityThreshold,
-                100 // Get more results initially for filtering
+                500 // Get more results since we have multiple entries per branch
               );
               
-              // Process each result
+              // Group entry results by branch (remove _entry_N suffix)
+              const branchScores = new Map();
               for (const vectorResult of vectorResults) {
-                const branch = vectorResult.document;
+                // Extract branch name from entry key (e.g., "feature_CDM-384_entry_0" -> "feature_CDM-384")
+                const entryKey = vectorResult.document;
+                const branch = entryKey.replace(/_entry_\d+$/, '');
                 
+                // Keep the BEST similarity score for each branch
+                if (!branchScores.has(branch) || vectorResult.similarity > branchScores.get(branch)) {
+                  branchScores.set(branch, vectorResult.similarity);
+                }
+              }
+              
+              // Process unique branches with their best scores
+              for (const [branch, similarity] of branchScores.entries()) {
                 // Skip if specific branch requested and doesn't match
                 if (branchName && !branch.includes(branchName)) {
                   continue;
@@ -3395,7 +3406,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                     context,
                     path: notePath,
                     matchCount,
-                    similarity: Math.round(vectorResult.similarity * 1000) / 10 // Convert to percentage
+                    similarity: Math.round(similarity * 1000) / 10 // Convert to percentage
                   });
                 } catch (error) {
                   // Skip files that can't be read

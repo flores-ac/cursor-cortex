@@ -1,15 +1,17 @@
 /**
- * Vector Embeddings Module for Cursor-Cortex - CPU Backend Version
+ * Vector Embeddings Module for Cursor-Cortex - Native Node Backend
  * 
  * This module provides functionality to generate, store, and query vector 
  * embeddings for knowledge documents, enabling semantic search capabilities.
  * 
- * Uses TensorFlow.js CPU backend to avoid ARM64 native binary compatibility issues.
+ * Uses TensorFlow.js Node backend with native C++ bindings for optimal performance.
  */
 
+// Load polyfill for Node.js v14+ compatibility
+import './tfjs-node-polyfill.js';
+
 // ES6 imports for compatibility with index.js
-import * as tf from '@tensorflow/tfjs';
-import '@tensorflow/tfjs-backend-cpu';
+import * as tf from '@tensorflow/tfjs-node';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import fs from 'fs/promises';
 import path from 'path';
@@ -42,9 +44,8 @@ async function initializeModel() {
   try {
     isModelLoading = true;
     
-    // Set CPU backend explicitly to avoid native binary issues
-    await tf.setBackend('cpu');
-    console.log('🧠 Loading Universal Sentence Encoder model with CPU backend...');
+    // tfjs-node automatically uses optimized native backend
+    console.log('🧠 Loading Universal Sentence Encoder model with native Node backend...');
     
     modelInstance = await use.load();
     console.log('✅ Model loaded successfully');
