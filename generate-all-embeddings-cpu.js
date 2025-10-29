@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Generate embeddings for ALL Cursor-Cortex knowledge files using CPU backend
+ * Generate embeddings for ALL Cursor-Cortex knowledge files using native Node backend
  * Handles: tacit knowledge, branch notes, context files, and archives
  * 
  * Usage:
@@ -10,6 +10,7 @@
  *   --force: Regenerate embeddings even if they already exist
  */
 
+// Polyfill is loaded by embeddings-cpu.js
 import { generateEmbedding, storeEmbedding, loadEmbedding } from './embeddings-cpu.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -74,9 +75,18 @@ async function generateEmbeddingsForTacitKnowledge() {
             
             // Extract meaningful text (title + content)
             const lines = content.split('\n').filter(line => line.trim());
-            const title = lines.find(line => line.startsWith('#')) || file;
-            const textContent = lines.slice(0, 15).join(' ').substring(0, 800);
-            const embeddingText = `${title} ${textContent}`;
+            
+            // Extract actual title from template (not "# Tacit Knowledge Capture")
+            const titleMatch = content.match(/\*\*Title:\*\*\s*(.+)/);
+            const actualTitle = titleMatch ? titleMatch[1] : file;
+            
+            // Extract tags for better semantic matching
+            const tagsMatch = content.match(/\*\*Tags:\*\*\s*(.+)/);
+            const tags = tagsMatch ? tagsMatch[1] : '';
+            
+            // Increase text window from 800 to 2000 chars
+            const textContent = lines.slice(0, 20).join(' ').substring(0, 2000);
+            const embeddingText = `${actualTitle} ${tags} ${textContent}`;
             
             // Generate and store embedding
             const embedding = await generateEmbedding(embeddingText);
@@ -146,24 +156,49 @@ async function generateEmbeddingsForBranchNotes() {
             const filePath = path.join(projectDir, file);
             const content = await fs.readFile(filePath, 'utf8');
             
-            // Extract branch name and recent entries
-            const lines = content.split('\n').filter(line => line.trim());
+            // DUAL-EMBEDDING STRATEGY: Create both overall + entry embeddings
             
-            // Get title and recent entries (first 20 lines of meaningful content)
+            // 1. OVERALL EMBEDDING: Captures what this branch is about
+            const lines = content.split('\n').filter(line => line.trim());
             const meaningfulLines = lines.filter(line => 
               !line.startsWith('#') && 
               !line.startsWith('---') &&
               line.length > 20
-            ).slice(0, 20);
+            );
             
-            const textContent = meaningfulLines.join(' ').substring(0, 1000);
-            const embeddingText = `Branch: ${branchName} Project: ${project} ${textContent}`;
+            // Take beginning (context) + end (recent work) for overall understanding
+            const beginningLines = meaningfulLines.slice(0, 15);
+            const endLines = meaningfulLines.slice(-15);
+            const overallText = [...beginningLines, ...endLines].join(' ').substring(0, 2000);
+            const overallEmbeddingText = `Branch: ${branchName} Project: ${project} ${overallText}`;
             
-            // Generate and store embedding using special "branch_notes" project key
-            const embedding = await generateEmbedding(embeddingText);
-            await storeEmbedding(projectKey, branchName, embedding);
+            const overallEmbedding = await generateEmbedding(overallEmbeddingText);
+            await storeEmbedding(projectKey, branchName, overallEmbedding);
             
-            log(`   ✅ Embedded: ${file}`);
+            // 2. ENTRY-BASED CHUNKING: Create one embedding per date entry
+            const entries = content.split(/(?=## \d{4}-\d{2}-\d{2})/);
+            
+            let entryCount = 0;
+            for (let i = 0; i < entries.length; i++) {
+              const entry = entries[i].trim();
+              if (!entry) continue;
+              
+              // Extract date from entry if present
+              const dateMatch = entry.match(/## (\d{4}-\d{2}-\d{2})/);
+              const entryDate = dateMatch ? dateMatch[1] : 'header';
+              
+              // Create embedding text with context
+              const embeddingText = `Branch: ${branchName} Project: ${project} Date: ${entryDate} ${entry.substring(0, 3000)}`;
+              
+              // Generate and store embedding with unique key per entry
+              const embedding = await generateEmbedding(embeddingText);
+              const entryKey = `${branchName}_entry_${i}`;
+              await storeEmbedding(projectKey, entryKey, embedding);
+              
+              entryCount++;
+            }
+            
+            log(`   ✅ Embedded: ${file} (1 overall + ${entryCount} entries)`);
             stats.processed++;
             
           } catch (error) {
