@@ -307,7 +307,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             branchName: { type: 'string', description: 'Optional: specific branch to search' },
             semanticSearch: { type: 'boolean', description: 'Enable vector-based semantic search for concept-based retrieval (default: true)' },
             similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic search results 0.0-1.0 (default: 0.4)' },
-            dateRange: { type: 'string', description: 'Optional date range filter (YYYY-MM-DD,YYYY-MM-DD)' }
+            dateRange: { type: 'string', description: 'Optional date range filter (YYYY-MM-DD,YYYY-MM-DD)' },
+            maxResults: { type: 'number', description: 'Maximum number of results to return (default: 50)' }
           },
           required: ['searchTerm']
         }
@@ -3308,7 +3309,8 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           branchName,
           semanticSearch = true,
           similarityThreshold = 0.4,
-          dateRange
+          dateRange,
+          maxResults = 50
         } = toolArgs;
         
         console.error(`🔍 Searching branch notes for: "${searchTerm}"`);
@@ -3348,21 +3350,11 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                 500 // Get more results since we have multiple entries per branch
               );
               
-              // Group entry results by branch (remove _entry_N suffix)
-              const branchScores = new Map();
+              // Process each result (including individual entries)
               for (const vectorResult of vectorResults) {
-                // Extract branch name from entry key (e.g., "feature_CDM-384_entry_0" -> "feature_CDM-384")
                 const entryKey = vectorResult.document;
                 const branch = entryKey.replace(/_entry_\d+$/, '');
-                
-                // Keep the BEST similarity score for each branch
-                if (!branchScores.has(branch) || vectorResult.similarity > branchScores.get(branch)) {
-                  branchScores.set(branch, vectorResult.similarity);
-                }
-              }
-              
-              // Process unique branches with their best scores
-              for (const [branch, similarity] of branchScores.entries()) {
+                const similarity = vectorResult.similarity;
                 // Skip if specific branch requested and doesn't match
                 if (branchName && !branch.includes(branchName)) {
                   continue;
@@ -3378,17 +3370,58 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                     if (startDate && !content.includes(startDate.substring(0, 7))) continue;
                   }
                   
+                  // Check if this is an entry-level match
+                  const entryMatch = entryKey.match(/_entry_(\d+)$/);
+                  const entryNumber = entryMatch ? parseInt(entryMatch[1]) : null;
+                  
                   // Extract context for display
                   const lines = content.split('\n');
+                  let contextLines = [];
                   
-                  // For semantic search, show first meaningful lines (keywords may not appear)
-                  // For preview, skip header and get first content lines
-                  const contentLines = lines.filter(line => {
-                    const trimmed = line.trim();
-                    return trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('---');
-                  });
+                  if (entryNumber !== null) {
+                    // For entry-level match, extract context from that specific entry
+                    const dateHeaders = [];
+                    lines.forEach((line, idx) => {
+                      if (line.match(/^## \d{4}-\d{2}-\d{2}/)) {
+                        dateHeaders.push(idx);
+                      }
+                    });
+                    
+                    if (dateHeaders[entryNumber] !== undefined) {
+                      const startIdx = dateHeaders[entryNumber];
+                      const endIdx = dateHeaders[entryNumber + 1] || lines.length;
+                      const entryLines = lines.slice(startIdx, endIdx);
+                      
+                      // Get the date header
+                      const dateHeader = entryLines[0]; // The ## YYYY-MM-DD line
+                      
+                      // Get meaningful lines from this entry (including section headers, excluding only date separators)
+                      const contentLines = entryLines
+                        .slice(1)
+                        .filter(line => {
+                          const trimmed = line.trim();
+                          // Keep headers (they might have [STALE INFO] tags) and content lines
+                          // Only skip empty lines and separator lines
+                          return trimmed && !trimmed.startsWith('---') && !trimmed.match(/^#{5,}/);
+                        })
+                        .slice(0, 2); // Get 2 lines (could be headers or content)
+                      
+                      // Combine: [date header, line 1, line 2]
+                      contextLines = [dateHeader, ...contentLines];
+                    }
+                  }
                   
-                  const context = contentLines.slice(0, 3).map(line => {
+                  // Fallback to file header if entry extraction failed or for overall match
+                  if (contextLines.length === 0) {
+                    contextLines = lines
+                      .filter(line => {
+                        const trimmed = line.trim();
+                        return trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('---');
+                      })
+                      .slice(0, 3);
+                  }
+                  
+                  const context = contextLines.map(line => {
                     const trimmed = line.trim();
                     return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
                   }).join(' | ');
@@ -3406,7 +3439,8 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                     context,
                     path: notePath,
                     matchCount,
-                    similarity: Math.round(similarity * 1000) / 10 // Convert to percentage
+                    similarity: Math.round(similarity * 1000) / 10, // Convert to percentage
+                    entryNumber // null for overall embedding, number for specific entry
                   });
                 } catch (error) {
                   // Skip files that can't be read
@@ -3468,7 +3502,8 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                     type: 'branch-note',
                     context,
                     path: notePath,
-                    matchCount
+                    matchCount,
+                    entryNumber: null // Keyword search doesn't do entry-level matching
                   });
                 }
               }
@@ -3496,16 +3531,24 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           };
         }
         
+        // Limit results
+        const totalResults = results.length;
+        const limitedResults = results.slice(0, maxResults);
+        
         // Format results with improved output
         const searchMode = semanticSearch ? '🧠 Semantic-First (AI-powered concept discovery)' : '📝 Text-based (keyword matching)';
-        let output = `# 🔍 Branch Notes Search Results\n\n**Query**: "${searchTerm}"\n**Search Mode**: ${searchMode}\n\n## 📋 Results (${results.length})\n\n`;
+        const resultsCount = totalResults > maxResults 
+          ? `${maxResults} of ${totalResults} (use maxResults parameter to show more)`
+          : `${totalResults}`;
+        let output = `# 🔍 Branch Notes Search Results\n\n**Query**: "${searchTerm}"\n**Search Mode**: ${searchMode}\n\n## 📋 Results (${resultsCount})\n\n`;
         
-        results.forEach((result, index) => {
+        limitedResults.forEach((result, index) => {
           const num = index + 1;
+          const entryInfo = typeof result.entryNumber === 'number' ? ` [Entry #${result.entryNumber}]` : '';
           if (result.similarity) {
-            output += `**${num}. ${result.project}/${result.branch}** 🧠 (${result.similarity}% similarity)\n`;
+            output += `**${num}. ${result.project}/${result.branch}${entryInfo}** 🧠 (${result.similarity}% similarity)\n`;
           } else {
-            output += `**${num}. ${result.project}/${result.branch}** 📝 (${result.matchCount} matches)\n`;
+            output += `**${num}. ${result.project}/${result.branch}${entryInfo}** 📝 (${result.matchCount} matches)\n`;
           }
           output += `\`\`\`\n${result.context}\n\`\`\`\n\n`;
         });
