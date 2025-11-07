@@ -370,4 +370,4 @@ This project is licensed under the [Parachute Public License (PPL) v1.0](./LICEN
 
 The PPL is an ethical license that includes restrictions against use by government, military, surveillance, and other harmful entities. For full details and rationale, see [parachute.pub](https://parachute.pub).
 
-© 2025 **Flores Analytics Consulting L.L.C**, Manuel Flores-Ramirez.
+© 2025 Manuel Flores-Ramirez.
