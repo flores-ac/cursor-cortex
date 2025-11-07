@@ -152,8 +152,43 @@ To set up automatic commit separators in a project:
      await fs.chmod(targetPostCommitHook, 0o755);
    }
    
-   setupHooks();
-   ```
+  setupHooks();
+  ```
+
+## Semantic Search Setup
+
+### Generating Embeddings
+
+For AI-powered semantic search capabilities, embeddings must be generated for all knowledge files:
+
+```javascript
+// Generate embeddings for the first time or for new content
+mcp_cursor-cortex_generate_embeddings(
+  forceRegenerate=false,
+  verbose=true
+)
+
+// Force regenerate all embeddings (after content updates)
+mcp_cursor-cortex_generate_embeddings(
+  forceRegenerate=true,
+  verbose=true
+)
+```
+
+**When to Generate Embeddings:**
+- After initial installation (first time setup)
+- After creating multiple new tacit knowledge documents
+- After major branch note updates
+- If semantic search returns fewer results than expected
+
+**Performance:**
+- Initial generation: Duration varies by document count and system (expect minutes for hundreds of documents)
+- Incremental updates: Very fast (only processes new files)
+- Force regeneration: Faster with native TensorFlow backend if available
+
+**Storage Location:**
+- Embeddings stored in `~/.cursor-cortex/embeddings/`
+- Organized by type: `tacit_knowledge/`, `branch_notes_*/`, `context_*/`
 
 ## Best Practices
 
