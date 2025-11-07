@@ -180,6 +180,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: 'generate_embeddings',
+        description: 'Generate or regenerate vector embeddings for all Cursor-Cortex knowledge files (tacit knowledge, branch notes, context files). Enables semantic search across entire knowledge base.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            forceRegenerate: { type: 'boolean', description: 'Regenerate embeddings even if they already exist (default: false)' },
+            verbose: { type: 'boolean', description: 'Show detailed processing information (default: true)' },
+            projectName: { type: 'string', description: 'Optional: generate embeddings for specific project only (not yet implemented)' },
+          },
+          required: [],
+        },
+      },
+      {
         name: 'create_tacit_knowledge',
         description: 'Create a tacit knowledge document based on the Cursor-Cortex template',
         inputSchema: {
@@ -2150,6 +2163,55 @@ All changes:
             {
               type: 'text',
               text: `Error generating Jira comment: ${error.message}`,
+            },
+          ],
+        };
+      }
+    } else if (name === 'generate_embeddings') {
+      try {
+        const { forceRegenerate = false, verbose = true } = toolArgs;
+        
+        console.error(`🧠 Starting embedding generation${forceRegenerate ? ' (force mode)' : ''}...`);
+        
+        // Import the embedding generation module
+        const embeddingsModule = await import('./generate-all-embeddings-cpu.js');
+        
+        // Build command args
+        const args = [];
+        if (forceRegenerate) args.push('--force');
+        if (verbose) args.push('--verbose');
+        
+        // Run the embedding generation (this will take time)
+        const startTime = Date.now();
+        const { execSync } = await import('child_process');
+        
+        // Get the directory where index.js is located
+        const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+        const command = `node ${path.join(scriptDir, 'generate-all-embeddings-cpu.js')} ${args.join(' ')}`;
+        
+        const output = execSync(command, { 
+          cwd: scriptDir,
+          encoding: 'utf8',
+          maxBuffer: 10 * 1024 * 1024 // 10MB buffer for large output
+        });
+        
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `# 🧠 Embedding Generation Complete\n\n**Duration**: ${duration} seconds\n**Mode**: ${forceRegenerate ? 'Force regenerate' : 'Generate new only'}\n\n## Output:\n\`\`\`\n${output}\n\`\`\`\n\n✅ Semantic search now available for all knowledge!`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error generating embeddings: ${error.message}\n\nTry running manually: node generate-all-embeddings-cpu.js`,
             },
           ],
         };
