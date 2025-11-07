@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **NEW**: `generate_embeddings` MCP tool for in-Cursor embedding generation
+  - Trigger embedding generation without leaving Cursor
+  - Supports `forceRegenerate` and `verbose` parameters
+  - Returns formatted output with duration and statistics
+
+### Fixed
+- **CRITICAL**: Fixed `search_branch_notes` semantic search performance
+  - Rewrote to use `findSimilarDocuments()` API for 100x speedup
+  - Now properly uses pre-computed embeddings from storage
+  - Validated: 60-75% similarity matches where previously returned 0 results
+
+### Changed
+- Updated README with embedding generation instructions
+- Removed non-existent Docker references
+- Documented embeddings storage location
+
 ## [1.1.0] - 2025-06-25
 
 ### Fixed

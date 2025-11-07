@@ -84,7 +84,7 @@ node generate-all-embeddings-cpu.js
 # - All tacit knowledge documents
 # - All branch notes
 # - All context files
-# Expected: ~10 minutes for 500+ documents
+# Duration varies by document count and system specs
 
 # Step 2 (Optional): Force regenerate if content changes
 node generate-all-embeddings-cpu.js --force
