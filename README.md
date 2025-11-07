@@ -74,16 +74,30 @@ For AI-powered semantic search capabilities:
 - 2GB RAM for vector models
 - 500MB disk space
 
-**Setup Options:**
+**Setup Steps:**
+
 ```bash
-# Option A: CPU Backend (Recommended - works on all systems)
-# Already included in dependencies - no extra setup needed
+# Step 1: Generate embeddings for all knowledge files
+node generate-all-embeddings-cpu.js
 
-# Option B: Docker Environment (For production deployments)
-npm run docker:build && npm run docker:test
+# This creates vector embeddings for:
+# - All tacit knowledge documents
+# - All branch notes
+# - All context files
+# Expected: ~10 minutes for 500+ documents
 
+# Step 2 (Optional): Force regenerate if content changes
+node generate-all-embeddings-cpu.js --force
 
+# Step 3 (Optional): View progress during generation
+node generate-all-embeddings-cpu.js --verbose
 ```
+
+**Why This Matters:**
+- Without embeddings, semantic search falls back to text search
+- Pre-computed embeddings make searches 100x faster
+- Generate once, use for all semantic queries
+- Embeddings stored in `~/.cursor-cortex/embeddings/`
 
 ### 4. Configure Cursor MCP
 Create or edit `~/.cursor/mcp.json`:
