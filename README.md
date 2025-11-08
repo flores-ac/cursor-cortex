@@ -118,6 +118,7 @@ Create or edit `~/.cursor/mcp.json`:
         "create_tacit_knowledge",
         "read_tacit_knowledge", 
         "search_branch_notes",
+        "generate_embeddings",
         "create_completion_checklist",
         "read_checklist",
         "update_checklist",
@@ -294,6 +295,7 @@ Analyze and synthesize project knowledge:
 - `create_tacit_knowledge` - Document solutions for future reference
 - `read_tacit_knowledge` - Search knowledge across all projects with tags and content search
 - `search_branch_notes` - Search branch notes across projects with semantic search
+- `generate_embeddings` - Generate or regenerate vector embeddings for semantic search
 - `comprehensive_knowledge_search` - Global semantic search across ALL Cursor-Cortex knowledge
 
 </details>
