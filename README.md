@@ -139,7 +139,9 @@ Create or edit `~/.cursor/mcp.json`:
         "add_perspective",
         "request_synthesis_space",
         "request_synthesis_step_guidance",
-        "complete_synthesis_step"
+        "complete_synthesis_step",
+        "generate_context_zip",
+        "unpack_context"
       ],
       "stdio": true,
       "env": {
@@ -341,6 +343,14 @@ Analyze and synthesize project knowledge:
 - `request_synthesis_space` - Load perspectives into synthesis workspace for integration
 - `request_synthesis_step_guidance` - Get detailed guidance for synthesis steps
 - `complete_synthesis_step` - Complete specific synthesis step and update process
+
+</details>
+
+<details>
+<summary><strong>📦 Context Sharing</strong></summary>
+
+- `generate_context_zip` - Package knowledge into portable ZIP archive for sharing between users/environments
+- `unpack_context` - Import shared context package with safe conflict resolution
 
 </details>
 
