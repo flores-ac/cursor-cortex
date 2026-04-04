@@ -24,6 +24,7 @@
     "postinstall": "echo '✅ TensorFlow native backend installed. Note: Universal Sentence Encoder peer dependency warning is expected and resolved by our Node.js v23 polyfill.'"
   },
   "dependencies": {
+    "@apollo/server": "^4.13.0",
     "@modelcontextprotocol/sdk": "^1.11.0",
     "@tensorflow-models/universal-sentence-encoder": "^1.3.3",
     "@tensorflow/tfjs": "^4.4.0",
@@ -33,7 +34,11 @@
     "@tensorflow/tfjs-node": "^4.4.0",
     "adm-zip": "^0.5.16",
     "chalk": "^5.2.0",
-    "commander": "^9.4.1"
+    "commander": "^9.4.1",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "graphql": "^16.13.2",
+    "graphql-tag": "^2.12.6"
   },
   "keywords": [
     "ai-memory",

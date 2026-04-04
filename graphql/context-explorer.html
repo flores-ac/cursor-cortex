@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cursor-Cortex Knowledge Explorer</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0f0f1a;
+      color: #c8c8e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      background: #16162a;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    header h1 { font-size: 1.15rem; color: #e94560; font-weight: 700; letter-spacing: 0.3px; }
+
+    .controls { display: flex; align-items: center; gap: 10px; }
+
+    .view-toggle {
+      display: flex;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid #2a2a4a;
+    }
+    .view-toggle button {
+      padding: 7px 18px;
+      border: none;
+      background: #16162a;
+      color: #7070a0;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .view-toggle button.active { background: #e94560; color: #fff; }
+    .view-toggle button:hover:not(.active) { background: #1e1e38; color: #b0b0d0; }
+
+    select {
+      padding: 7px 12px;
+      background: #1a1a30;
+      color: #c8c8e0;
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+
+    .stats-bar {
+      background: #12122a;
+      padding: 8px 24px;
+      display: flex;
+      gap: 28px;
+      border-bottom: 1px solid #1e1e38;
+      font-size: 0.8rem;
+    }
+    .stat { display: flex; align-items: center; gap: 6px; }
+    .stat-value { color: #e94560; font-weight: 700; font-size: 1rem; }
+    .stat-label { color: #6868a0; }
+
+    #network-container { flex: 1; position: relative; overflow: hidden; min-height: 0; }
+    #network { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+
+    .loading {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center; color: #6868a0;
+    }
+    .loading .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #1e1e38;
+      border-top-color: #e94560;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .info-panel {
+      position: absolute; top: 0; right: -400px;
+      width: 400px; height: 100%;
+      background: #16162a;
+      border-left: 1px solid #2a2a4a;
+      padding: 24px;
+      overflow-y: auto;
+      transition: right 0.3s ease;
+      z-index: 10;
+    }
+    .info-panel.open { right: 0; }
+    .info-panel .close-btn {
+      position: absolute; top: 12px; right: 16px;
+      background: none; border: none; color: #6868a0;
+      font-size: 1.3rem; cursor: pointer; line-height: 1;
+    }
+    .info-panel .close-btn:hover { color: #e94560; }
+    .info-panel h2 { color: #e94560; font-size: 1.05rem; margin-bottom: 16px; padding-right: 30px; line-height: 1.4; }
+    .info-detail { margin-bottom: 14px; }
+    .info-detail-label {
+      font-size: 0.7rem; color: #5858a0;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      margin-bottom: 3px;
+    }
+    .info-detail-value {
+      font-size: 0.88rem; color: #b8b8d8; line-height: 1.6;
+    }
+    .info-detail-value.mono {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 0.78rem;
+      background: #0f0f1a;
+      padding: 8px 12px;
+      border-radius: 5px;
+      border: 1px solid #1e1e38;
+    }
+    .info-stages { margin-top: 8px; }
+    .info-stage {
+      padding: 6px 0;
+      border-bottom: 1px solid #1a1a30;
+      font-size: 0.82rem;
+    }
+    .info-stage .num { color: #e94560; font-weight: 700; margin-right: 8px; }
+
+    .legend {
+      position: absolute; bottom: 16px; left: 16px;
+      background: rgba(22, 22, 42, 0.94);
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 12px 16px;
+      z-index: 5;
+    }
+    .legend h4 {
+      font-size: 0.7rem; color: #5858a0;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      margin-bottom: 8px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 0.78rem; color: #9898b8; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    .error-msg { color: #e94560; text-align: center; margin-top: 20px; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Cursor-Cortex Knowledge Explorer</h1>
+    <div class="controls">
+      <div class="view-toggle">
+        <button id="btn-projects" class="active" onclick="switchView('projects')">Projects</button>
+        <button id="btn-pipelines" onclick="switchView('pipelines')">Pipelines</button>
+      </div>
+      <select id="selector" onchange="focusNode(this.value)">
+        <option value="">-- Select --</option>
+      </select>
+      <input id="search-input" type="text" placeholder="Search knowledge..." style="
+        padding:7px 12px; background:#1a1a30; color:#c8c8e0;
+        border:1px solid #2a2a4a; border-radius:6px; font-size:0.82rem; width:180px;
+      " onkeydown="if(event.key==='Enter') searchKnowledge()" />
+      <button onclick="searchKnowledge()" style="
+        padding:7px 14px; background:#e94560; color:#fff; border:none;
+        border-radius:6px; font-size:0.82rem; cursor:pointer;
+      ">Search</button>
+    </div>
+  </header>
+
+  <div class="stats-bar">
+    <div class="stat"><span class="stat-value" id="stat-1">0</span><span class="stat-label" id="stat-1-label">Projects</span></div>
+    <div class="stat"><span class="stat-value" id="stat-2">0</span><span class="stat-label" id="stat-2-label">Branches</span></div>
+    <div class="stat"><span class="stat-value" id="stat-3">0</span><span class="stat-label" id="stat-3-label">Entries</span></div>
+  </div>
+
+  <div id="network-container">
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <div>Loading knowledge graph...</div>
+    </div>
+    <div id="network"></div>
+
+    <div class="info-panel" id="info-panel">
+      <button class="close-btn" onclick="closePanel()">&times;</button>
+      <div id="info-content"></div>
+    </div>
+
+    <div class="legend" id="legend"></div>
+  </div>
+
+<script>
+const GQL = 'http://localhost:4000/graphql';
+let network = null;
+let currentView = 'projects';
+let projectData = [];
+let pipelineData = [];
+let explodedPipelines = new Set();
+
+async function gql(query) {
+  const res = await fetch(GQL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query })
+  });
+  const json = await res.json();
+  if (json.errors) { console.error('GQL Error:', json.errors); throw new Error(json.errors[0].message); }
+  return json.data;
+}
+
+// --- Data Loading ---
+
+async function loadProjects() {
+  const data = await gql(`{
+    projects {
+      name
+      description
+      stats { totalBranches totalBranchEntries averageCompletenessScore }
+      branches { name }
+      relatedProjects
+    }
+  }`);
+  projectData = data.projects;
+  return projectData;
+}
+
+async function loadPipelines() {
+  const data = await gql(`{
+    pipelines {
+      id name projectName description status
+      stages { number name description tables }
+    }
+  }`);
+  pipelineData = data.pipelines;
+  return pipelineData;
+}
+
+// --- UI Helpers ---
+
+function setStats(v1, l1, v2, l2, v3, l3) {
+  const s1 = document.getElementById('stat-1');
+  const s1l = document.getElementById('stat-1-label');
+  const s2 = document.getElementById('stat-2');
+  const s2l = document.getElementById('stat-2-label');
+  const s3 = document.getElementById('stat-3');
+  const s3l = document.getElementById('stat-3-label');
+  if (s1) { s1.textContent = v1; s1l.textContent = l1; }
+  if (s2) { s2.textContent = v2; s2l.textContent = l2; }
+  if (s3) { s3.textContent = v3; s3l.textContent = l3; }
+}
+
+function populateSelector(items, labelFn) {
+  const sel = document.getElementById('selector');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">-- Select --</option>';
+  items.forEach(item => {
+    const opt = document.createElement('option');
+    opt.value = typeof item === 'string' ? item : item.id || item.name;
+    opt.textContent = labelFn ? labelFn(item) : (item.name || item);
+    sel.appendChild(opt);
+  });
+}
+
+function focusNode(id) {
+  if (!network || !id) return;
+  network.selectNodes([id]);
+  network.focus(id, { scale: 1.2, animation: { duration: 400 } });
+}
+
+function openPanel(title, html) {
+  const panel = document.getElementById('info-panel');
+  const content = document.getElementById('info-content');
+  if (!panel || !content) return;
+  content.innerHTML = `<h2>${title}</h2>${html}`;
+  panel.classList.add('open');
+}
+
+function closePanel() {
+  const panel = document.getElementById('info-panel');
+  if (panel) panel.classList.remove('open');
+}
+
+function detail(label, value) {
+  return `<div class="info-detail"><div class="info-detail-label">${label}</div><div class="info-detail-value">${value}</div></div>`;
+}
+
+function detailMono(label, value) {
+  return `<div class="info-detail"><div class="info-detail-label">${label}</div><div class="info-detail-value mono">${value}</div></div>`;
+}
+
+function setLoading(show) {
+  const el = document.getElementById('loading');
+  if (el) el.style.display = show ? 'block' : 'none';
+}
+
+function showError(msg) {
+  setLoading(false);
+  const container = document.getElementById('network');
+  if (container) container.innerHTML = `<div class="error-msg">${msg}</div>`;
+}
+
+function setLegend(items) {
+  const legend = document.getElementById('legend');
+  if (!legend) return;
+  legend.innerHTML = `<h4>Legend</h4>${items.map(([color, label]) =>
+    `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div>${label}</div>`
+  ).join('')}`;
+}
+
+// --- Color Palettes ---
+
+const PROJECT_COLORS = ['#e94560','#4361ee','#7209b7','#00b4d8','#06d6a0','#ffd166','#ef476f','#118ab2','#f72585','#8338ec','#ff006e','#3a86a7'];
+
+const PIPE_COLORS = { ice: '#4361ee', device: '#ef233c', consolidated: '#00b4d8', clip: '#7209b7', default: '#06d6a0' };
+
+function pipeColor(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('inferred_customer') || n.includes('ice')) return PIPE_COLORS.ice;
+  if (n.includes('device')) return PIPE_COLORS.device;
+  if (n.includes('consolidated') || n.includes('unified_tx_matching_c')) return PIPE_COLORS.consolidated;
+  if (n.includes('clip')) return PIPE_COLORS.clip;
+  return PIPE_COLORS.default;
+}
+
+// --- Network Rendering ---
+
+function renderProjects(projects) {
+  const nodes = [];
+  const edges = [];
+  const edgeSet = new Set();
+  const projectNames = new Set(projects.map(p => p.name));
+
+  let totalBranches = 0;
+  let totalEntries = 0;
+  let totalConnections = 0;
+
+  projects.forEach((p, i) => {
+    const branches = p.stats ? p.stats.totalBranches : 0;
+    const entries = p.stats ? p.stats.totalBranchEntries : 0;
+    totalBranches += branches;
+    totalEntries += entries;
+    const size = Math.max(16, Math.min(55, 16 + Math.sqrt(entries) * 2.5));
+    const color = PROJECT_COLORS[i % PROJECT_COLORS.length];
+
+    nodes.push({
+      id: p.name,
+      label: p.name,
+      size,
+      color: { background: color, border: color, highlight: { background: color, border: '#fff' } },
+      font: { color: '#d0d0e8', size: 11 },
+      shape: 'dot',
+      _type: 'project',
+      _data: p,
+    });
+  });
+
+  projects.forEach(p => {
+    const related = p.relatedProjects || [];
+    for (const rel of related) {
+      if (!projectNames.has(rel)) continue;
+      const key = [p.name, rel].sort().join('::');
+      if (edgeSet.has(key)) continue;
+      edgeSet.add(key);
+      totalConnections++;
+      edges.push({
+        from: p.name, to: rel,
+        color: { color: '#3a3a6a', opacity: 0.6 },
+        width: 1.5,
+        arrows: { to: { enabled: false } },
+        smooth: { type: 'curvedCW', roundness: 0.12 },
+      });
+    }
+  });
+
+  setStats(projects.length, 'Projects', totalBranches, 'Branches', totalConnections, 'Connections');
+  populateSelector(projects, p => `${p.name} (${p.stats ? p.stats.totalBranchEntries : 0})`);
+  setLegend([
+    ['#e94560', 'Project node (size = entries)'],
+    ['#3a3a6a', 'Related project link'],
+  ]);
+
+  drawNetwork(nodes, edges);
+}
+
+async function renderPipelines(pipelines) {
+  const nodes = [];
+  const edges = [];
+  const seenIds = new Set();
+  let totalStages = 0;
+
+  pipelines.forEach(p => {
+    if (seenIds.has(p.id)) return;
+    seenIds.add(p.id);
+    const color = pipeColor(p.id);
+    totalStages += (p.stages || []).length;
+
+    nodes.push({
+      id: p.id,
+      label: p.name.replace(/ - /g, '\n').substring(0, 40),
+      size: 28 + (p.stages || []).length * 3,
+      color: { background: color, border: color, highlight: { background: color, border: '#fff' } },
+      font: { color: '#d0d0e8', size: 10, multi: 'md' },
+      shape: 'dot',
+      _type: 'pipeline',
+      _data: p,
+    });
+  });
+
+  for (const p of pipelines) {
+    try {
+      const data = await gql(`{ pipelineConnections(pipelineId: "${p.id}") {
+        fromPipeline { id } toPipeline { id } direction
+      }}`);
+      for (const conn of (data.pipelineConnections || [])) {
+        const fromId = conn.fromPipeline.id;
+        const toId = conn.toPipeline.id;
+        if (!seenIds.has(fromId) || !seenIds.has(toId)) continue;
+        const key = [fromId, toId].sort().join('::');
+        if (edges.some(e => [e.from, e.to].sort().join('::') === key)) continue;
+        edges.push({
+          from: fromId, to: toId,
+          color: { color: '#e94560' }, width: 2,
+          arrows: { to: { enabled: conn.direction !== 'BIDIRECTIONAL', scaleFactor: 0.6 } },
+          smooth: { type: 'curvedCW', roundness: 0.15 },
+          label: conn.direction === 'UPSTREAM' ? 'feeds' : conn.direction === 'DOWNSTREAM' ? 'consumes' : '',
+          font: { color: '#6868a0', size: 8, strokeWidth: 0 },
+        });
+      }
+    } catch (_) {}
+  }
+
+  setStats(pipelines.length, 'Pipelines', totalStages, 'Stages', edges.length, 'Connections');
+  populateSelector(pipelines, p => `${p.name} (${(p.stages||[]).length} stages)`);
+  setLegend([
+    [PIPE_COLORS.ice, 'ICE Pipeline'],
+    [PIPE_COLORS.device, 'Device Graph'],
+    [PIPE_COLORS.consolidated, 'Consolidated Data'],
+    [PIPE_COLORS.clip, 'CLIP'],
+    [PIPE_COLORS.default, 'Other'],
+    ['#e94560', 'Data dependency'],
+  ]);
+
+  drawNetwork(nodes, edges);
+}
+
+function drawNetwork(nodes, edges) {
+  const container = document.getElementById('network');
+  if (!container) return;
+
+  const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+  const options = {
+    physics: {
+      solver: 'forceAtlas2Based',
+      forceAtlas2Based: { gravitationalConstant: -60, centralGravity: 0.008, springLength: 140 },
+      stabilization: { iterations: 120 }
+    },
+    interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true },
+    nodes: {
+      borderWidth: 2,
+      shadow: { enabled: true, color: 'rgba(0,0,0,0.3)', size: 8, x: 2, y: 2 }
+    },
+    edges: {
+      color: { color: '#2a2a4a', highlight: '#e94560' },
+      width: 1.5,
+      arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+      smooth: { type: 'curvedCW', roundness: 0.15 }
+    }
+  };
+
+  network = new vis.Network(container, data, options);
+
+  network.on('click', params => {
+    if (params.nodes.length > 0) {
+      const nodeId = params.nodes[0];
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) return;
+      if (node._type === 'project') showProjectPanel(node._data);
+      else if (node._type === 'pipeline') showPipelinePanel(node._data);
+      else if (node._type === 'stage') showStagePanel(node._data, node._pipeline);
+      return;
+    }
+
+    if (params.edges.length > 0) {
+      const edgeId = params.edges[0];
+      const edge = data.edges.get(edgeId);
+      if (!edge) { closePanel(); return; }
+      const pA = nodes.find(n => n.id === edge.from);
+      const pB = nodes.find(n => n.id === edge.to);
+      if (pA && pB && pA._type === 'project' && pB._type === 'project') {
+        showConnectionPanel(pA._data, pB._data);
+      }
+      return;
+    }
+
+    closePanel();
+  });
+
+  network.on('doubleClick', params => {
+    if (params.nodes.length === 0) return;
+    const nodeId = params.nodes[0];
+    const node = nodes.find(n => n.id === nodeId);
+    if (node && node._type === 'pipeline' && !explodedPipelines.has(nodeId)) {
+      explodePipeline(node._data, data.nodes, data.edges);
+    }
+  });
+}
+
+function showProjectPanel(p) {
+  const score = p.stats && p.stats.averageCompletenessScore
+    ? p.stats.averageCompletenessScore.toFixed(1) + '%'
+    : 'N/A';
+  const branches = p.branches
+    ? p.branches.map(b => b.name).join(', ')
+    : 'None';
+
+  openPanel(p.name, [
+    detail('Description', p.description || '<em>No description</em>'),
+    detail('Branches', p.stats ? p.stats.totalBranches : 0),
+    detail('Entries', p.stats ? p.stats.totalBranchEntries : 0),
+    detail('Completeness', score),
+    detailMono('Branch Names', branches),
+  ].join(''));
+}
+
+function showPipelinePanel(p) {
+  const stagesHtml = (p.stages || [])
+    .sort((a, b) => a.number - b.number)
+    .map(s => `<div class="info-stage"><span class="num">${String(s.number).padStart(2,'0')}</span>${s.name}</div>`)
+    .join('');
+
+  openPanel(p.name, [
+    detail('Project', p.projectName),
+    detail('Status', `<span style="color:${p.status === 'ACTIVE' ? '#06d6a0' : '#ef476f'}">${p.status}</span>`),
+    detail('Stages', (p.stages || []).length),
+    p.description ? detail('Description', p.description) : '',
+    stagesHtml ? `<div class="info-detail"><div class="info-detail-label">Pipeline Stages</div><div class="info-stages">${stagesHtml}</div></div>` : '',
+  ].join(''));
+}
+
+function showConnectionPanel(a, b) {
+  const ignoreBranches = new Set(['main', 'stage', 'master']);
+  const aBranches = new Set((a.branches || []).map(br => br.name).filter(n => !ignoreBranches.has(n)));
+  const bBranches = new Set((b.branches || []).map(br => br.name).filter(n => !ignoreBranches.has(n)));
+  const shared = [...aBranches].filter(n => bBranches.has(n));
+
+  const extractMentions = (text, targetName) => {
+    if (!text) return null;
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    const hits = sentences.filter(s => s.toLowerCase().includes(targetName.toLowerCase()));
+    return hits.length ? hits.join(' ') : null;
+  };
+
+  const aMentionsB = extractMentions(a.description, b.name);
+  const bMentionsA = extractMentions(b.description, a.name);
+
+  const parts = [];
+
+  if (aMentionsB || bMentionsA) {
+    let ctx = '';
+    if (aMentionsB) ctx += `<strong>${a.name}</strong>: ${aMentionsB}<br><br>`;
+    if (bMentionsA) ctx += `<strong>${b.name}</strong>: ${bMentionsA}`;
+    parts.push(detail('Connection Context', ctx));
+  }
+
+  parts.push(detail(a.name, a.description || '<em>No description</em>'));
+  parts.push(detail(b.name, b.description || '<em>No description</em>'));
+
+  if (shared.length) {
+    parts.push(detailMono('Shared Branches (' + shared.length + ')', shared.join('<br>')));
+  }
+
+  openPanel(`${a.name} ↔ ${b.name}`, parts.join(''));
+}
+
+function showStagePanel(stage, pipeline) {
+  const tables = (stage.tables || []).join('<br>');
+  openPanel(`Stage ${String(stage.number).padStart(2,'0')} — ${stage.name}`, [
+    detail('Pipeline', pipeline.name),
+    detail('Stage', `${String(stage.number).padStart(2,'0')} — ${stage.name}`),
+    stage.description ? detail('Description', stage.description) : '',
+    tables ? detailMono('Output Tables', tables) : '',
+  ].join(''));
+}
+
+// --- Pipeline Explode ---
+
+function stageColor(index, total) {
+  if (total <= 1) return '#4361ee';
+  const ratio = index / (total - 1);
+  if (ratio < 0.33) return '#4361ee';
+  if (ratio < 0.66) return '#7209b7';
+  return '#06d6a0';
+}
+
+function explodePipeline(pipeline, nodesDS, edgesDS) {
+  explodedPipelines.add(pipeline.id);
+
+  const pos = network.getPositions([pipeline.id])[pipeline.id] || { x: 0, y: 0 };
+  nodesDS.remove(pipeline.id);
+
+  const stages = [...(pipeline.stages || [])].sort((a, b) => a.number - b.number);
+  const total = stages.length;
+  if (total === 0) return;
+
+  const cols = Math.min(4, total);
+  const spacingX = 200;
+  const spacingY = 120;
+
+  stages.forEach((stage, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = pos.x + (col - (cols - 1) / 2) * spacingX;
+    const y = pos.y + (row - 0.5) * spacingY;
+    const nodeId = `${pipeline.id}__${stage.number}`;
+    const color = stageColor(i, total);
+
+    nodesDS.add({
+      id: nodeId,
+      label: `${String(stage.number).padStart(2, '0')}\n${stage.name.substring(0, 22)}`,
+      x, y,
+      fixed: { x: true, y: true },
+      size: 20,
+      color: { background: color, border: color, highlight: { background: color, border: '#fff' } },
+      font: { color: '#d0d0e8', size: 9, multi: 'md' },
+      shape: 'box',
+      borderWidth: 2,
+      _type: 'stage',
+      _data: stage,
+      _pipeline: pipeline,
+    });
+
+    if (i > 0) {
+      const prevId = `${pipeline.id}__${stages[i - 1].number}`;
+      edgesDS.add({
+        from: prevId, to: nodeId,
+        color: { color: '#3a3a5a' }, width: 2,
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+      });
+    }
+  });
+
+  addCrossPipelineDeps(pipeline, stages, nodesDS, edgesDS);
+
+  setTimeout(() => {
+    stages.forEach((s) => {
+      nodesDS.update({ id: `${pipeline.id}__${s.number}`, fixed: false });
+    });
+  }, 800);
+}
+
+function addCrossPipelineDeps(pipeline, stages, nodesDS, edgesDS) {
+  const pId = pipeline.id.toLowerCase();
+  if (!pId.includes('inferred_customer') && !pId.includes('ice')) return;
+
+  const allNodeIds = nodesDS.getIds();
+  for (const nId of allNodeIds) {
+    const n = nodesDS.get(nId);
+    if (!n) continue;
+    const nLower = nId.toLowerCase();
+
+    if (nLower.includes('device') && stages.some(s => s.number === 2)) {
+      edgesDS.add({
+        from: nId, to: `${pipeline.id}__2`,
+        color: { color: '#ef233c' }, width: 2,
+        dashes: [6, 4],
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+        label: 'device edges', font: { color: '#ef233c', size: 8, strokeWidth: 0 },
+      });
+    }
+
+    if ((nLower.includes('consolidated') || nLower.includes('unified_tx_matching_c')) && stages.some(s => s.number === 1)) {
+      edgesDS.add({
+        from: nId, to: `${pipeline.id}__1`,
+        color: { color: '#00b4d8' }, width: 2,
+        dashes: [6, 4],
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+        label: 'attributes', font: { color: '#00b4d8', size: 8, strokeWidth: 0 },
+      });
+    }
+  }
+}
+
+// --- View Switching ---
+
+async function switchView(view) {
+  currentView = view;
+  explodedPipelines.clear();
+  closePanel();
+
+  document.getElementById('btn-projects').classList.toggle('active', view === 'projects');
+  document.getElementById('btn-pipelines').classList.toggle('active', view === 'pipelines');
+
+  setLoading(true);
+  try {
+    if (view === 'projects') {
+      const projects = await loadProjects();
+      setLoading(false);
+      renderProjects(projects);
+    } else {
+      const pipelines = await loadPipelines();
+      setLoading(false);
+      renderPipelines(pipelines);
+    }
+  } catch (err) {
+    showError(`Could not load ${view}. Is the GraphQL server running at ${GQL}?`);
+    console.error(err);
+  }
+}
+
+// --- Search ---
+
+async function searchKnowledge() {
+  const input = document.getElementById('search-input');
+  const q = (input ? input.value : '').trim();
+  if (!q) return;
+
+  setLoading(true);
+  closePanel();
+
+  try {
+    const data = await gql(`{ searchKnowledge(query: "${q.replace(/"/g, '\\"')}") {
+      knowledge { title project tags dateCreated }
+      branches { name entries { timestamp content } }
+      totalResults
+    }}`);
+
+    setLoading(false);
+    const sr = data.searchKnowledge;
+    const nodes = [];
+    const edges = [];
+
+    nodes.push({
+      id: '__search__', label: `"${q}"`, size: 30,
+      color: { background: '#e94560', border: '#e94560', highlight: { background: '#e94560', border: '#fff' } },
+      font: { color: '#fff', size: 12 }, shape: 'star',
+      _type: 'search',
+    });
+
+    (sr.knowledge || []).forEach((k, i) => {
+      const nid = `tk_${i}`;
+      nodes.push({
+        id: nid, label: (k.title || 'Untitled').substring(0, 30), size: 18,
+        color: { background: '#7209b7', border: '#7209b7', highlight: { background: '#7209b7', border: '#fff' } },
+        font: { color: '#d0d0e8', size: 9 }, shape: 'diamond',
+        _type: 'knowledge', _data: k,
+      });
+      edges.push({ from: '__search__', to: nid });
+    });
+
+    (sr.branches || []).forEach((b, i) => {
+      const nid = `br_${i}`;
+      nodes.push({
+        id: nid, label: b.name.substring(0, 28), size: 16,
+        color: { background: '#ffd166', border: '#ffd166', highlight: { background: '#ffd166', border: '#fff' } },
+        font: { color: '#1a1a30', size: 9 }, shape: 'dot',
+        _type: 'searchBranch', _data: b,
+      });
+      edges.push({ from: '__search__', to: nid });
+    });
+
+    setStats(sr.totalResults, 'Results', (sr.knowledge || []).length, 'Knowledge', (sr.branches || []).length, 'Branches');
+    setLegend([['#e94560','Search query'], ['#7209b7','Tacit Knowledge'], ['#ffd166','Branch match']]);
+    drawNetwork(nodes, edges);
+
+    network.on('click', params => {
+      if (!params.nodes.length) { closePanel(); return; }
+      const nid = params.nodes[0];
+      const node = nodes.find(n => n.id === nid);
+      if (!node) return;
+      if (node._type === 'knowledge') {
+        const k = node._data;
+        openPanel(k.title || 'Knowledge', [
+          detail('Project', k.project || 'N/A'),
+          detail('Date', k.dateCreated || 'N/A'),
+          detail('Tags', (k.tags || []).join(', ') || 'None'),
+        ].join(''));
+      } else if (node._type === 'searchBranch') {
+        const b = node._data;
+        openPanel(b.name, [
+          detail('Entries', (b.entries || []).length),
+          detailMono('Latest', b.entries && b.entries.length ? b.entries[b.entries.length-1].content.substring(0,300) : 'N/A'),
+        ].join(''));
+      }
+    });
+  } catch (err) {
+    showError(`Search failed: ${err.message}`);
+    console.error(err);
+  }
+}
+
+// --- Init ---
+switchView('projects');
+
+</script>
+</body>
+</html>
