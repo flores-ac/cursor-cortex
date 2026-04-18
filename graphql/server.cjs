@@ -63,6 +63,7 @@ const typeDefs = `#graphql
     description: String
     stats: ProjectStats
     branches(name: String): [Branch!]!
+    tacitKnowledge: [TacitKnowledge!]!
     relatedProjects: [String!]!
   }
 
@@ -141,6 +142,19 @@ const typeDefs = `#graphql
     via: String
   }
 
+  type SharedTag {
+    tag: String!
+    projects: [String!]!
+    count: Int!
+  }
+
+  type ProjectSimilarity {
+    projectA: String!
+    projectB: String!
+    similarity: Float!
+    basis: String!
+  }
+
   type Query {
     projects: [Project!]!
     project(name: String!): Project
@@ -150,6 +164,8 @@ const typeDefs = `#graphql
     pipeline(id: String!): Pipeline
     pipelineConnections(pipelineId: String!): [PipelineConnection!]!
     contextFiles(projectName: String): [ContextFile!]!
+    sharedTags(minProjects: Int): [SharedTag!]!
+    projectSimilarities(threshold: Float): [ProjectSimilarity!]!
   }
 `;
 
@@ -342,6 +358,130 @@ class CortexAPI {
       tags,
       content,
     };
+  }
+
+  // ---- tag aggregation ----------------------------------------------------
+
+  getSharedTags(minProjects = 2) {
+    const tagMap = new Map();
+
+    for (const proj of this.listProjects()) {
+      const files = this.listKnowledgeFiles(proj);
+      const projectTags = new Set();
+      for (const fp of files) {
+        const parsed = this.parseKnowledgeFile(fp);
+        if (!parsed) continue;
+        for (const tag of (parsed.tags || [])) {
+          const normalized = tag.toLowerCase().trim();
+          if (normalized.length > 1) projectTags.add(normalized);
+        }
+      }
+      for (const tag of projectTags) {
+        if (!tagMap.has(tag)) tagMap.set(tag, new Set());
+        tagMap.get(tag).add(proj);
+      }
+    }
+
+    const results = [];
+    for (const [tag, projects] of tagMap) {
+      if (projects.size >= minProjects) {
+        results.push({
+          tag,
+          projects: [...projects],
+          count: projects.size,
+        });
+      }
+    }
+    return results.sort((a, b) => b.count - a.count);
+  }
+
+  // ---- embedding similarity -----------------------------------------------
+
+  getProjectEmbeddingCentroid(projectName) {
+    const embeddingsDir = join(this.rootDir, 'embeddings');
+    const vectors = [];
+
+    const knowledgeDir = join(embeddingsDir, projectName);
+    if (this.isDirectory(knowledgeDir)) {
+      for (const f of this.safeDirRead(knowledgeDir)) {
+        if (!f.endsWith('.json')) continue;
+        const raw = this.safeFileRead(join(knowledgeDir, f));
+        if (!raw) continue;
+        try {
+          const data = JSON.parse(raw);
+          if (Array.isArray(data.embedding) && data.embedding.length > 0) {
+            vectors.push(data.embedding);
+          }
+        } catch (_) {}
+      }
+    }
+
+    const branchDir = join(embeddingsDir, `branch_notes_${projectName}`);
+    if (this.isDirectory(branchDir)) {
+      for (const f of this.safeDirRead(branchDir)) {
+        if (!f.endsWith('.json')) continue;
+        const raw = this.safeFileRead(join(branchDir, f));
+        if (!raw) continue;
+        try {
+          const data = JSON.parse(raw);
+          if (Array.isArray(data.embedding) && data.embedding.length > 0) {
+            vectors.push(data.embedding);
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (vectors.length === 0) return null;
+
+    const dim = vectors[0].length;
+    const centroid = new Array(dim).fill(0);
+    for (const v of vectors) {
+      for (let i = 0; i < dim; i++) centroid[i] += v[i];
+    }
+    for (let i = 0; i < dim; i++) centroid[i] /= vectors.length;
+    return { centroid, vectorCount: vectors.length };
+  }
+
+  getProjectSimilarities(threshold = 0.3) {
+    const projects = this.listProjects();
+    const centroids = new Map();
+
+    for (const proj of projects) {
+      const result = this.getProjectEmbeddingCentroid(proj);
+      if (result) centroids.set(proj, result);
+    }
+
+    const cosine = (a, b) => {
+      let dot = 0, magA = 0, magB = 0;
+      for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i];
+        magA += a[i] * a[i];
+        magB += b[i] * b[i];
+      }
+      const denom = Math.sqrt(magA) * Math.sqrt(magB);
+      return denom === 0 ? 0 : dot / denom;
+    };
+
+    const results = [];
+    const projectList = [...centroids.keys()];
+
+    for (let i = 0; i < projectList.length; i++) {
+      for (let j = i + 1; j < projectList.length; j++) {
+        const a = projectList[i];
+        const b = projectList[j];
+        const sim = cosine(centroids.get(a).centroid, centroids.get(b).centroid);
+        if (sim >= threshold) {
+          results.push({
+            projectA: a,
+            projectB: b,
+            similarity: Math.round(sim * 1000) / 1000,
+            basis: `${centroids.get(a).vectorCount}+${centroids.get(b).vectorCount} embeddings`,
+          });
+        }
+      }
+    }
+
+    return results.sort((a, b) => b.similarity - a.similarity);
   }
 
   // ---- search ------------------------------------------------------------
@@ -741,6 +881,14 @@ function buildResolvers(api) {
       contextFiles(_, { projectName }) {
         return api.listContextFiles(projectName);
       },
+
+      sharedTags(_, { minProjects }) {
+        return api.getSharedTags(minProjects || 2);
+      },
+
+      projectSimilarities(_, { threshold }) {
+        return api.getProjectSimilarities(threshold || 0.3);
+      },
     },
 
     Project: {
@@ -749,6 +897,9 @@ function buildResolvers(api) {
           return project.branches.filter((b) => b.name === name);
         }
         return project.branches;
+      },
+      tacitKnowledge(project) {
+        return project.tacitKnowledge || [];
       },
     },
 
@@ -782,6 +933,11 @@ function buildProject(api, name) {
     ? scores.reduce((a, b) => a + b, 0) / scores.length
     : 0;
 
+  const knowledgeFiles = api.listKnowledgeFiles(name);
+  const tacitKnowledge = knowledgeFiles
+    .map((fp) => api.parseKnowledgeFile(fp))
+    .filter(Boolean);
+
   return {
     name,
     description,
@@ -791,6 +947,7 @@ function buildProject(api, name) {
       totalBranchEntries,
     },
     branches,
+    tacitKnowledge,
     relatedProjects: api.getRelatedProjects(name),
   };
 }
