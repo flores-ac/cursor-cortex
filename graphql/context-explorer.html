@@ -491,6 +491,15 @@
         <button id="btn-branches" class="active" onclick="setDepth('branches')" title="Show branch notes">Branches</button>
         <button id="btn-full" onclick="setDepth('full')" title="Show branches + tacit knowledge">Full</button>
       </div>
+<<<<<<< HEAD
+=======
+      <button id="btn-physics" onclick="togglePhysics()" title="Re-enable physics to let graph re-settle" style="
+        padding:6px 12px; border:none; background:var(--bg-primary); color:var(--text-tertiary);
+        cursor:pointer; font-size:0.72rem; font-weight:500; font-family:inherit;
+        border-radius:var(--radius-sm); border:1px solid var(--border-subtle);
+        transition:all var(--transition); letter-spacing:-0.01em;
+      ">Settle</button>
+>>>>>>> stage
       <select id="selector" onchange="focusNode(this.value)">
         <option value="">Jump to...</option>
       </select>
@@ -657,6 +666,28 @@ function populateSelector(items, labelFn) {
   });
 }
 
+<<<<<<< HEAD
+=======
+let physicsOn = false;
+
+function togglePhysics() {
+  if (!network) return;
+  physicsOn = !physicsOn;
+  const btn = document.getElementById('btn-physics');
+  if (physicsOn) {
+    network.setOptions({ physics: { enabled: true, stabilization: { enabled: false } } });
+    btn.textContent = 'Freeze';
+    btn.style.background = 'var(--accent)';
+    btn.style.color = '#fff';
+  } else {
+    network.setOptions({ physics: { enabled: false } });
+    btn.textContent = 'Settle';
+    btn.style.background = 'var(--bg-primary)';
+    btn.style.color = 'var(--text-tertiary)';
+  }
+}
+
+>>>>>>> stage
 function focusNode(id) {
   if (!network || !id) return;
   network.selectNodes([id]);
@@ -1564,6 +1595,12 @@ function drawNetwork(nodes, edges) {
   // Freeze after stabilization, then start neural firing
   network.on('stabilized', () => {
     network.setOptions({ physics: { enabled: false } });
+<<<<<<< HEAD
+=======
+    physicsOn = false;
+    const btn = document.getElementById('btn-physics');
+    if (btn) { btn.textContent = 'Settle'; btn.style.background = 'var(--bg-primary)'; btn.style.color = 'var(--text-tertiary)'; }
+>>>>>>> stage
     startFiring();
   });
 
