@@ -1586,12 +1586,16 @@ function drawNetwork(nodes, edges) {
     }, totalDuration));
   }
 
-  // Freeze after stabilization, then start neural firing
+  // Only auto-freeze on initial stabilization, not when user toggled physics on
+  let initialStabilization = true;
   network.on('stabilized', () => {
-    network.setOptions({ physics: { enabled: false } });
-    physicsOn = false;
-    const btn = document.getElementById('btn-physics');
-    if (btn) { btn.textContent = 'Settle'; btn.style.background = 'var(--bg-primary)'; btn.style.color = 'var(--text-tertiary)'; }
+    if (!physicsOn || initialStabilization) {
+      network.setOptions({ physics: { enabled: false } });
+      physicsOn = false;
+      const btn = document.getElementById('btn-physics');
+      if (btn) { btn.textContent = 'Settle'; btn.style.background = 'var(--bg-primary)'; btn.style.color = 'var(--text-tertiary)'; }
+      initialStabilization = false;
+    }
     startFiring();
   });
 
