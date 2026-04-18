@@ -740,11 +740,12 @@ function renderProjects(projects) {
   let totalKnowledge = 0;
   let totalConnections = 0;
 
-  // Parse date strings consistently (handles "2026-04-18 02:29:29" and "2026-04-18")
+  // Parse date strings as UTC (cortex stores timestamps without timezone indicator)
   function parseDate(str) {
     if (!str) return 0;
-    const normalized = str.trim().replace(' ', 'T');
-    const d = new Date(normalized);
+    const s = str.trim();
+    if (s.includes('Z') || s.includes('+')) return new Date(s).getTime() || 0;
+    const d = new Date(s.replace(' ', 'T') + 'Z');
     return isNaN(d.getTime()) ? 0 : d.getTime();
   }
 
