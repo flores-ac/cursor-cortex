@@ -1,5 +1,7 @@
 # Cursor-Cortex: Structured Memory for AI Assistants
 
+> Works with Cursor, Claude Code, and any MCP-compatible AI assistant.
+
 **Solve AI assistant memory loss and context confusion.** Cursor-Cortex gives your AI the structured thinking and long-term memory it needs to actually help you build software.
 
 ## 🧠 The Problem with AI Assistants
@@ -99,27 +101,7 @@ node generate-all-embeddings-cpu.js --verbose
 - Generate once, use for all semantic queries
 - Embeddings stored in `~/.cursor-cortex/embeddings/`
 
-### 4. Knowledge Explorer (Visual Graph)
-
-Explore your entire knowledge base as an interactive network graph.
-
-```bash
-npm run explorer
-```
-
-Then open **http://localhost:4000** in your browser.
-
-**Features:**
-- **Three-tier visualization**: Projects, branch notes, and tacit knowledge as interconnected nodes
-- **Similarity-driven layout**: Semantically similar projects cluster together using embedding cosine similarity
-- **Neural pulse animation**: Watch signals propagate through your knowledge network in real-time
-- **Activity-based colors**: Brighter nodes = more recently updated projects
-- **Click to explore**: Click any node to see details, similar projects, and tags
-- **Depth toggle**: Switch between Compact (projects only), Branches, and Full views
-
-**Requirements:** The GraphQL server reads from `~/.cursor-cortex/` — run the MCP server at least once first to initialize the directory structure.
-
-### 5. Configure Cursor MCP
+### 4. Configure Cursor MCP
 Create or edit `~/.cursor/mcp.json`:
 ```json
 "cursor-cortex": {
@@ -173,22 +155,61 @@ Create or edit `~/.cursor/mcp.json`:
 
 > **Note:** This configuration is for Cursor-Cortex v1.2.0+. If you're using an older version, some tools may not be available. Check your `package.json` version and consider updating.
 
-### 6. Restart Cursor
+### 5. Restart Cursor
 Close and reopen Cursor completely.
 
-### 7. Enable MCP Server
+---
+
+### Claude Code Installation
+
+Create or edit `.claude/settings.json` in your project root (or `~/.claude/settings.json` globally):
+
+```json
+{
+  "mcpServers": {
+    "cursor-cortex": {
+      "command": "node",
+      "args": ["/YOUR/FULL/PATH/TO/cursor-cortex/index.js"]
+    }
+  }
+}
+```
+
+**Replace `/YOUR/FULL/PATH/TO/cursor-cortex/` with the output from step 2**, then restart Claude Code.
+
+---
+
+### 6. Enable MCP Server
 1. Go to **Cursor Settings** (Cmd/Ctrl + ,)
 2. Navigate to **Features → Model Context Protocol**
 3. Find **cursor-cortex** and toggle it **ON**
 4. You should see: `Storage directory created at /Users/yourname/.cursor-cortex`
 
-### 8. Test It
+### 7. Test It
 In any Cursor chat, try:
 ```
 "Update my branch notes: Testing Cursor-Cortex setup"
 ```
 
 If it works, you'll see: `Successfully updated branch note with: "Testing Cursor-Cortex setup"`
+
+### 8. Knowledge Explorer (Visual Graph)
+
+Once everything is set up, explore your knowledge base as an interactive network graph:
+
+```bash
+npm run explorer
+```
+
+Then open **http://localhost:4000** in your browser.
+
+**Features:**
+- **Three-tier visualization**: Projects, branch notes, and tacit knowledge as interconnected nodes
+- **Similarity-driven layout**: Semantically similar projects cluster together using embedding cosine similarity
+- **Neural pulse animation**: Watch signals propagate through your knowledge network in real-time
+- **Activity-based colors**: Brighter nodes = more recently updated projects
+- **Click to explore**: Click any node to see details, similar projects, and tags
+- **Depth toggle**: Switch between Compact (projects only), Branches, and Full views
 
 ## 🔧 Troubleshooting
 
