@@ -11,6 +11,7 @@ import path from 'path';
 import os from 'os';
 import AdmZip from 'adm-zip';
 import { findSimilarDocuments, isModelAvailable, generateEmbedding, storeEmbedding } from './embeddings-cpu.js';
+import { notifyCortexDemoBridge } from './demo-bridge-notify.mjs';
 
 // Initialize the server
 const server = new Server(
@@ -757,7 +758,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     
     console.error('Final arguments:', JSON.stringify(toolArgs));
-    
+
+    notifyCortexDemoBridge(name, { ...toolArgs });
+
     // Use the processed arguments for the rest of the function
     // Get root storage directory for cursor-cortex files
     function getStorageRoot() {
