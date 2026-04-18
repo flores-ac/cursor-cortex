@@ -1,5 +1,7 @@
 # Cursor-Cortex: Structured Memory for AI Assistants
 
+> Works with Cursor, Claude Code, and any MCP-compatible AI assistant.
+
 **Solve AI assistant memory loss and context confusion.** Cursor-Cortex gives your AI the structured thinking and long-term memory it needs to actually help you build software.
 
 ## 🧠 The Problem with AI Assistants
@@ -156,6 +158,27 @@ Create or edit `~/.cursor/mcp.json`:
 ### 5. Restart Cursor
 Close and reopen Cursor completely.
 
+---
+
+### Claude Code Installation
+
+Create or edit `.claude/settings.json` in your project root (or `~/.claude/settings.json` globally):
+
+```json
+{
+  "mcpServers": {
+    "cursor-cortex": {
+      "command": "node",
+      "args": ["/YOUR/FULL/PATH/TO/cursor-cortex/index.js"]
+    }
+  }
+}
+```
+
+**Replace `/YOUR/FULL/PATH/TO/cursor-cortex/` with the output from step 2**, then restart Claude Code.
+
+---
+
 ### 6. Enable MCP Server
 1. Go to **Cursor Settings** (Cmd/Ctrl + ,)
 2. Navigate to **Features → Model Context Protocol**
@@ -169,6 +192,24 @@ In any Cursor chat, try:
 ```
 
 If it works, you'll see: `Successfully updated branch note with: "Testing Cursor-Cortex setup"`
+
+### 8. Knowledge Explorer (Visual Graph)
+
+Once everything is set up, explore your knowledge base as an interactive network graph:
+
+```bash
+npm run explorer
+```
+
+Then open **http://localhost:4000** in your browser.
+
+**Features:**
+- **Three-tier visualization**: Projects, branch notes, and tacit knowledge as interconnected nodes
+- **Similarity-driven layout**: Semantically similar projects cluster together using embedding cosine similarity
+- **Neural pulse animation**: Watch signals propagate through your knowledge network in real-time
+- **Activity-based colors**: Brighter nodes = more recently updated projects
+- **Click to explore**: Click any node to see details, similar projects, and tags
+- **Depth toggle**: Switch between Compact (projects only), Branches, and Full views
 
 ## 🔧 Troubleshooting
 
@@ -191,7 +232,7 @@ If it works, you'll see: `Successfully updated branch note with: "Testing Cursor
 
 **Need Help?** Create an issue with your error message for quick support.
 
-### 8. Start Using
+### 9. Start Using
 - **"Show my uncommitted work"** - See what you've been working on
 - **"Generate a commit message"** - Create commits from your notes
 - **"Create tacit knowledge document"** - Save solutions for later

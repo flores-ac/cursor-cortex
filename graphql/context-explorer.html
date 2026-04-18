@@ -1,0 +1,1965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cursor-Cortex Knowledge Explorer</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #1a1a1f;
+      --bg-secondary: #212127;
+      --bg-tertiary: #2a2a31;
+      --bg-elevated: #2f2f37;
+      --border-subtle: rgba(255,255,255,0.06);
+      --border-medium: rgba(255,255,255,0.1);
+      --text-primary: #e8e4e1;
+      --text-secondary: #a09a96;
+      --text-tertiary: #6b6662;
+      --accent: #b45a68;
+      --accent-light: #c8727f;
+      --accent-muted: #8c4654;
+      --accent-wash: rgba(180,90,104,0.12);
+      --accent-glow: rgba(180,90,104,0.25);
+      --maroon: #7a3a46;
+      --maroon-deep: #5c2a34;
+      --rose: #d4868f;
+      --rose-muted: #a86b73;
+      --surface-glass: rgba(42,42,49,0.85);
+      --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
+      --shadow-md: 0 4px 16px rgba(0,0,0,0.3);
+      --radius: 10px;
+      --radius-sm: 6px;
+      --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      --edge-color: rgba(255,255,255,0.07);
+      --edge-hover: rgba(255,255,255,0.18);
+      --edge-highlight: rgba(255,255,255,0.25);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.012) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.012) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      top: -30%;
+      right: -20%;
+      width: 60%;
+      height: 60%;
+      background: radial-gradient(ellipse, var(--accent-wash) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    header {
+      position: relative;
+      z-index: 10;
+      background: var(--bg-secondary);
+      padding: 0 28px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--maroon-deep) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo-mark svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: rgba(255,255,255,0.9);
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    header h1 {
+      font-size: 0.9rem;
+      color: var(--text-primary);
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    header h1 span {
+      color: var(--text-tertiary);
+      font-weight: 400;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .view-toggle {
+      display: flex;
+      background: var(--bg-primary);
+      border-radius: var(--radius-sm);
+      padding: 3px;
+      border: 1px solid var(--border-subtle);
+    }
+    .view-toggle button {
+      padding: 6px 16px;
+      border: none;
+      background: transparent;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      font-size: 0.78rem;
+      font-weight: 500;
+      font-family: inherit;
+      border-radius: 4px;
+      transition: all var(--transition);
+      letter-spacing: -0.01em;
+    }
+    .view-toggle button.active {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 1px 4px rgba(180,90,104,0.3);
+    }
+    .view-toggle button:hover:not(.active) {
+      color: var(--text-secondary);
+      background: var(--bg-tertiary);
+    }
+
+    .depth-toggle {
+      display: flex;
+      background: var(--bg-primary);
+      border-radius: var(--radius-sm);
+      padding: 3px;
+      border: 1px solid var(--border-subtle);
+    }
+    .depth-toggle button {
+      padding: 6px 12px;
+      border: none;
+      background: transparent;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-weight: 500;
+      font-family: inherit;
+      border-radius: 4px;
+      transition: all var(--transition);
+      letter-spacing: -0.01em;
+    }
+    .depth-toggle button.active {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+    }
+    .depth-toggle button:hover:not(.active) {
+      color: var(--text-secondary);
+      background: var(--bg-tertiary);
+    }
+
+    select {
+      padding: 6px 28px 6px 10px;
+      background: var(--bg-primary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      font-family: inherit;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b6662' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      transition: border-color var(--transition);
+    }
+    select:hover { border-color: var(--border-medium); }
+    select:focus { outline: none; border-color: var(--accent-muted); }
+
+    .search-group {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      transition: border-color var(--transition);
+    }
+    .search-group:focus-within { border-color: var(--accent-muted); }
+    .search-group svg {
+      margin-left: 10px;
+      width: 14px;
+      height: 14px;
+      stroke: var(--text-tertiary);
+      flex-shrink: 0;
+    }
+    .search-group input {
+      padding: 6px 10px 6px 8px;
+      background: transparent;
+      color: var(--text-primary);
+      border: none;
+      font-size: 0.78rem;
+      font-family: inherit;
+      width: 160px;
+      outline: none;
+    }
+    .search-group input::placeholder { color: var(--text-tertiary); }
+    .search-group button {
+      padding: 6px 14px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-size: 0.75rem;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background var(--transition);
+      letter-spacing: -0.01em;
+    }
+    .search-group button:hover { background: var(--accent-light); }
+
+    .stats-bar {
+      position: relative;
+      z-index: 10;
+      background: var(--bg-secondary);
+      padding: 0 28px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .stat-value {
+      color: var(--accent-light);
+      font-weight: 600;
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-label {
+      color: var(--text-tertiary);
+      font-size: 0.75rem;
+      font-weight: 400;
+      letter-spacing: 0.02em;
+    }
+    .stat-divider {
+      width: 1px;
+      height: 16px;
+      background: var(--border-subtle);
+    }
+
+    #network-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      min-height: 0;
+      z-index: 1;
+    }
+    #network {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+    }
+
+    .loading {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      color: var(--text-tertiary);
+      z-index: 5;
+    }
+    .loading .spinner {
+      width: 32px; height: 32px;
+      border: 2px solid var(--bg-tertiary);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 14px;
+    }
+    .loading p {
+      font-size: 0.82rem;
+      font-weight: 400;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .info-panel {
+      position: absolute;
+      top: 0; right: 0;
+      width: 380px;
+      height: 100%;
+      background: var(--surface-glass);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-left: 1px solid var(--border-subtle);
+      padding: 0;
+      overflow-y: auto;
+      z-index: 20;
+      transform: translateX(100%);
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .info-panel.open { transform: translateX(0); }
+
+    .info-panel-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .info-panel .close-btn {
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-tertiary);
+      font-size: 1rem;
+      cursor: pointer;
+      line-height: 1;
+      flex-shrink: 0;
+      transition: all var(--transition);
+    }
+    .info-panel .close-btn:hover {
+      color: var(--accent-light);
+      border-color: var(--accent-muted);
+      background: var(--accent-wash);
+    }
+
+    .info-panel h2 {
+      color: var(--text-primary);
+      font-size: 0.95rem;
+      font-weight: 600;
+      line-height: 1.4;
+      letter-spacing: -0.01em;
+    }
+
+    .info-panel-body { padding: 16px 24px 24px; }
+
+    .info-detail { margin-bottom: 16px; }
+    .info-detail-label {
+      font-size: 0.68rem;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .info-detail-value {
+      font-size: 0.84rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+    .info-detail-value.mono {
+      font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+      font-size: 0.76rem;
+      background: var(--bg-primary);
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+      line-height: 1.7;
+      word-break: break-all;
+    }
+
+    .info-stages { margin-top: 8px; }
+    .info-stage {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .info-stage .num {
+      color: var(--accent);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      font-size: 0.75rem;
+      min-width: 20px;
+    }
+
+    .legend {
+      position: absolute;
+      bottom: 20px; left: 20px;
+      background: var(--surface-glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      z-index: 5;
+      box-shadow: var(--shadow-md);
+    }
+    .legend h4 {
+      font-size: 0.65rem;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    .legend-item:last-child { margin-bottom: 0; }
+    .legend-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 0 6px currentColor;
+    }
+    .legend-dot.square { border-radius: 2px; }
+    .legend-dot.diamond {
+      border-radius: 0;
+      transform: rotate(45deg) scale(0.85);
+    }
+
+    .error-msg {
+      color: var(--accent);
+      text-align: center;
+      margin-top: 20px;
+      font-size: 0.88rem;
+      font-weight: 500;
+    }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+      </div>
+      <h1>Knowledge Explorer <span>/ cortex</span></h1>
+    </div>
+    <div class="controls">
+      <div class="view-toggle">
+        <button id="btn-projects" class="active" onclick="switchView('projects')">Projects</button>
+        <button id="btn-pipelines" onclick="switchView('pipelines')">Pipelines</button>
+      </div>
+      <div class="depth-toggle" id="depth-toggle">
+        <button id="btn-compact" onclick="setDepth('compact')" title="Projects only">Compact</button>
+        <button id="btn-branches" class="active" onclick="setDepth('branches')" title="Show branch notes">Branches</button>
+        <button id="btn-full" onclick="setDepth('full')" title="Show branches + tacit knowledge">Full</button>
+      </div>
+      <select id="selector" onchange="focusNode(this.value)">
+        <option value="">Jump to...</option>
+      </select>
+      <div class="search-group">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="search-input" type="text" placeholder="Search knowledge..." onkeydown="if(event.key==='Enter') searchKnowledge()" />
+        <button onclick="searchKnowledge()">Search</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="stats-bar">
+    <div class="stat"><span class="stat-value" id="stat-1">0</span><span class="stat-label" id="stat-1-label">Projects</span></div>
+    <div class="stat-divider"></div>
+    <div class="stat"><span class="stat-value" id="stat-2">0</span><span class="stat-label" id="stat-2-label">Branches</span></div>
+    <div class="stat-divider"></div>
+    <div class="stat"><span class="stat-value" id="stat-3">0</span><span class="stat-label" id="stat-3-label">Knowledge</span></div>
+    <div class="stat-divider"></div>
+    <div class="stat"><span class="stat-value" id="stat-4">0</span><span class="stat-label" id="stat-4-label">Connections</span></div>
+    <div class="stat-divider"></div>
+    <div class="stat"><span class="stat-value" id="stat-5">-</span><span class="stat-label" id="stat-5-label">Last Active</span></div>
+    <div class="stat-divider"></div>
+    <div class="stat"><span class="stat-value" id="stat-6">0</span><span class="stat-label" id="stat-6-label">This Week</span></div>
+  </div>
+
+  <div id="network-container">
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p>Loading knowledge graph...</p>
+    </div>
+    <div id="network"></div>
+
+    <div class="info-panel" id="info-panel">
+      <div class="info-panel-header">
+        <h2 id="info-title"></h2>
+        <button class="close-btn" onclick="closePanel()">&times;</button>
+      </div>
+      <div class="info-panel-body" id="info-content"></div>
+    </div>
+
+    <div class="legend" id="legend"></div>
+  </div>
+
+<script>
+const GQL = 'http://localhost:4000/graphql';
+const FONT = 'Inter, system-ui, sans-serif';
+let network = null;
+let currentView = 'projects';
+let currentDepth = 'branches';
+let projectData = [];
+let pipelineData = [];
+let explodedPipelines = new Set();
+let activeFireIntervals = [];
+let cascadeTimeouts = [];
+
+async function gql(query) {
+  const res = await fetch(GQL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query })
+  });
+  const json = await res.json();
+  if (json.errors) { console.error('GQL Error:', json.errors); throw new Error(json.errors[0].message); }
+  return json.data;
+}
+
+// --- Palette ---
+const PALETTE = {
+  project: [
+    '#c8626e','#bf5b66','#b45a68','#a8545f',
+    '#9e4e58','#944851','#8c4654','#7f3d4a',
+    '#743842','#6b3540','#5f2d38','#532630',
+  ],
+  branch: 'rgba(160,154,150,0.55)',
+  branchBorder: 'rgba(160,154,150,0.25)',
+  knowledge: 'rgba(200,114,127,0.5)',
+  knowledgeBorder: 'rgba(200,114,127,0.2)',
+  edge: 'rgba(255,255,255,0.06)',
+  edgeHover: 'rgba(255,255,255,0.15)',
+  edgeHighlight: 'rgba(255,255,255,0.22)',
+  gravityEdge: 'rgba(255,255,255,0.035)',
+  pipe: {
+    ice: '#8c4654',
+    device: '#b45a68',
+    consolidated: '#a86b73',
+    clip: '#7a3a46',
+    default: '#c8727f',
+  },
+};
+
+// --- Data Loading ---
+
+let similarityData = [];
+
+async function loadProjects() {
+  const [projResult, simResult] = await Promise.all([
+    gql(`{
+      projects {
+        name
+        description
+        stats { totalBranches totalBranchEntries averageCompletenessScore }
+        branches { name entries(last: 1) { timestamp } }
+        tacitKnowledge { title project tags dateCreated }
+        relatedProjects
+      }
+    }`),
+    gql(`{ projectSimilarities(threshold: 0.3) { projectA projectB similarity basis } }`),
+  ]);
+  projectData = projResult.projects;
+  similarityData = simResult.projectSimilarities;
+  return projectData;
+}
+
+async function loadPipelines() {
+  const data = await gql(`{
+    pipelines {
+      id name projectName description status
+      stages { number name description tables }
+    }
+  }`);
+  pipelineData = data.pipelines;
+  return pipelineData;
+}
+
+// --- UI Helpers ---
+
+function setStats(stats) {
+  for (const [id, val, label] of stats) {
+    const vEl = document.getElementById(id);
+    const lEl = document.getElementById(id + '-label');
+    if (!vEl || val === undefined) continue;
+    if (typeof val === 'number') {
+      animateCounter(vEl, val);
+    } else {
+      vEl.textContent = val;
+    }
+    if (lEl && label) lEl.textContent = label;
+  }
+}
+
+function animateCounter(el, target) {
+  const num = parseInt(target) || 0;
+  const duration = 600;
+  const start = parseInt(el.textContent) || 0;
+  const startTime = performance.now();
+  function step(now) {
+    const progress = Math.min((now - startTime) / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    el.textContent = Math.round(start + (num - start) * eased);
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function populateSelector(items, labelFn) {
+  const sel = document.getElementById('selector');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Jump to...</option>';
+  items.forEach(item => {
+    const opt = document.createElement('option');
+    opt.value = typeof item === 'string' ? item : item.id || item.name;
+    opt.textContent = labelFn ? labelFn(item) : (item.name || item);
+    sel.appendChild(opt);
+  });
+}
+
+function focusNode(id) {
+  if (!network || !id) return;
+  network.selectNodes([id]);
+  network.focus(id, { scale: 1.3, animation: { duration: 500, easingFunction: 'easeInOutCubic' } });
+}
+
+function openPanel(title, html) {
+  const panel = document.getElementById('info-panel');
+  const titleEl = document.getElementById('info-title');
+  const content = document.getElementById('info-content');
+  if (!panel || !content) return;
+  titleEl.textContent = title;
+  content.innerHTML = html;
+  panel.classList.add('open');
+}
+
+function closePanel() {
+  const panel = document.getElementById('info-panel');
+  if (panel) panel.classList.remove('open');
+}
+
+function detail(label, value) {
+  return `<div class="info-detail"><div class="info-detail-label">${label}</div><div class="info-detail-value">${value}</div></div>`;
+}
+
+function detailMono(label, value) {
+  return `<div class="info-detail"><div class="info-detail-label">${label}</div><div class="info-detail-value mono">${value}</div></div>`;
+}
+
+function setLoading(show) {
+  const el = document.getElementById('loading');
+  if (el) el.style.display = show ? 'block' : 'none';
+}
+
+function showError(msg) {
+  setLoading(false);
+  const container = document.getElementById('network');
+  if (container) container.innerHTML = `<div class="error-msg">${msg}</div>`;
+}
+
+function setLegend(items) {
+  const legend = document.getElementById('legend');
+  if (!legend) return;
+  legend.innerHTML = `<h4>Legend</h4>${items.map(([color, label, shape]) => {
+    const cls = shape === 'square' ? ' square' : shape === 'diamond' ? ' diamond' : '';
+    return `<div class="legend-item"><div class="legend-dot${cls}" style="background:${color};color:${color}"></div>${label}</div>`;
+  }).join('')}`;
+}
+
+function setDepth(depth) {
+  currentDepth = depth;
+  document.getElementById('btn-compact').classList.toggle('active', depth === 'compact');
+  document.getElementById('btn-branches').classList.toggle('active', depth === 'branches');
+  document.getElementById('btn-full').classList.toggle('active', depth === 'full');
+  if (currentView === 'projects' && projectData.length) {
+    renderProjects(projectData);
+  }
+}
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// --- Truncate long branch/file names ---
+function truncName(name, max) {
+  if (!name) return '';
+  const clean = name.replace(/^feature[/_]/, '').replace(/^hotfix[/_]/, '').replace(/_/g, ' ');
+  return clean.length > max ? clean.substring(0, max) + '…' : clean;
+}
+
+// --- Network Rendering ---
+
+function renderProjects(projects) {
+  const nodes = [];
+  const edges = [];
+  const edgeSet = new Set();
+  const projectNames = new Set(projects.map(p => p.name));
+
+  let totalBranches = 0;
+  let totalKnowledge = 0;
+  let totalConnections = 0;
+
+  // Parse date strings consistently (handles "2026-04-18 02:29:29" and "2026-04-18")
+  function parseDate(str) {
+    if (!str) return 0;
+    const normalized = str.trim().replace(' ', 'T');
+    const d = new Date(normalized);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+
+  // Compute most recent activity date per project (branch notes + tacit knowledge)
+  const projectDates = projects.map((p, i) => {
+    let latest = 0;
+    (p.branches || []).forEach(b => {
+      (b.entries || []).forEach(e => {
+        const d = parseDate(e.timestamp);
+        if (d > latest) latest = d;
+      });
+    });
+    (p.tacitKnowledge || []).forEach(tk => {
+      const d = parseDate(tk.dateCreated);
+      if (d > latest) latest = d;
+    });
+    return { idx: i, date: latest };
+  });
+
+  // Sort by date descending, assign palette colors by rank
+  const ranked = [...projectDates].sort((a, b) => b.date - a.date);
+  const colorByIndex = new Array(projects.length);
+  ranked.forEach((entry, rank) => {
+    colorByIndex[entry.idx] = PALETTE.project[rank % PALETTE.project.length];
+  });
+
+  projects.forEach((p, i) => {
+    const branches = p.stats ? p.stats.totalBranches : 0;
+    const entries = p.stats ? p.stats.totalBranchEntries : 0;
+    const knowledgeCount = (p.tacitKnowledge || []).length;
+    totalBranches += branches;
+    totalKnowledge += knowledgeCount;
+
+    const size = Math.max(20, Math.min(55, 20 + Math.sqrt(entries) * 2.2));
+    const color = colorByIndex[i];
+
+    nodes.push({
+      id: p.name,
+      label: p.name,
+      size,
+      color: {
+        background: color,
+        border: 'rgba(255,255,255,0.06)',
+        highlight: { background: color, border: 'rgba(255,255,255,0.25)' },
+        hover: { background: color, border: 'rgba(255,255,255,0.15)' }
+      },
+      font: { color: 'rgba(232,228,225,0.85)', size: 11, face: FONT },
+      shape: 'dot',
+      shadow: { enabled: true, color: hexToRgba(color, 0.19), size: 14, x: 0, y: 0 },
+      borderWidth: 1,
+      borderWidthSelected: 2,
+      mass: 1.5,
+      _type: 'project',
+      _data: p,
+    });
+
+    // Branch satellites
+    if (currentDepth === 'branches' || currentDepth === 'full') {
+      (p.branches || []).forEach((b, bi) => {
+        const bId = `${p.name}::branch::${b.name}`;
+        nodes.push({
+          id: bId,
+          label: truncName(b.name, 18),
+          size: 7,
+          color: {
+            background: PALETTE.branch,
+            border: PALETTE.branchBorder,
+            highlight: { background: 'rgba(160,154,150,0.75)', border: 'rgba(255,255,255,0.2)' },
+            hover: { background: 'rgba(160,154,150,0.65)', border: 'rgba(255,255,255,0.15)' }
+          },
+          font: { color: 'rgba(160,154,150,0.6)', size: 8, face: FONT },
+          shape: 'dot',
+          shadow: false,
+          borderWidth: 1,
+          mass: 1,
+          _type: 'branch',
+          _data: { ...b, projectName: p.name },
+        });
+        edges.push({
+          from: p.name, to: bId,
+          color: { color: PALETTE.gravityEdge, highlight: PALETTE.edgeHover, hover: PALETTE.edgeHover },
+          width: 0.5,
+          length: 140 + Math.random() * 80,
+          arrows: { to: { enabled: false } },
+          smooth: false,
+          hoverWidth: 0,
+          selectionWidth: 0,
+          _tier: 'branch',
+        });
+      });
+    }
+
+    // Tacit knowledge satellites
+    if (currentDepth === 'full') {
+      (p.tacitKnowledge || []).forEach((tk, ti) => {
+        const tkId = `${p.name}::tk::${ti}`;
+        nodes.push({
+          id: tkId,
+          label: truncName(tk.title, 20),
+          size: 5,
+          color: {
+            background: PALETTE.knowledge,
+            border: PALETTE.knowledgeBorder,
+            highlight: { background: 'rgba(200,114,127,0.7)', border: 'rgba(255,255,255,0.2)' },
+            hover: { background: 'rgba(200,114,127,0.6)', border: 'rgba(255,255,255,0.15)' }
+          },
+          font: { color: 'rgba(200,114,127,0.5)', size: 7, face: FONT },
+          shape: 'diamond',
+          shadow: false,
+          borderWidth: 1,
+          mass: 1,
+          _type: 'knowledge',
+          _data: { ...tk, projectName: p.name },
+        });
+        edges.push({
+          from: p.name, to: tkId,
+          color: { color: PALETTE.gravityEdge, highlight: PALETTE.edgeHover, hover: PALETTE.edgeHover },
+          width: 0.3,
+          length: 100 + Math.random() * 80,
+          arrows: { to: { enabled: false } },
+          smooth: false,
+          hoverWidth: 0,
+          selectionWidth: 0,
+          _tier: 'knowledge',
+        });
+      });
+    }
+  });
+
+  // Project-to-project connections
+  projects.forEach(p => {
+    const related = p.relatedProjects || [];
+    for (const rel of related) {
+      if (!projectNames.has(rel)) continue;
+      const key = [p.name, rel].sort().join('::');
+      if (edgeSet.has(key)) continue;
+      edgeSet.add(key);
+      totalConnections++;
+      edges.push({
+        from: p.name, to: rel,
+        color: { color: PALETTE.edge, highlight: PALETTE.edgeHighlight, hover: PALETTE.edgeHover },
+        width: 1.2,
+        length: 180,
+        hoverWidth: 0.5,
+        selectionWidth: 0.5,
+        arrows: { to: { enabled: false } },
+        smooth: { type: 'curvedCW', roundness: 0.12 },
+        _tier: 'project',
+      });
+    }
+  });
+
+  // --- Top-1 nearest neighbor similarity chains (invisible layout forces) ---
+  const bestMatch = new Map();
+  for (const sim of similarityData) {
+    if (!projectNames.has(sim.projectA) || !projectNames.has(sim.projectB)) continue;
+    for (const [self, other] of [[sim.projectA, sim.projectB], [sim.projectB, sim.projectA]]) {
+      if (!bestMatch.has(self) || sim.similarity > bestMatch.get(self).similarity) {
+        bestMatch.set(self, { other, similarity: sim.similarity });
+      }
+    }
+  }
+  const chainSet = new Set();
+  for (const [proj, match] of bestMatch) {
+    const key = [proj, match.other].sort().join('::');
+    if (chainSet.has(key)) continue;
+    chainSet.add(key);
+    const dist = 120 + 200 * Math.pow(1 - match.similarity, 0.4);
+    edges.push({
+      from: proj, to: match.other,
+      length: dist,
+      width: 0,
+      color: { color: 'transparent', highlight: 'transparent', hover: 'transparent' },
+      arrows: { to: { enabled: false } },
+      smooth: false,
+      selectionWidth: 0,
+      hoverWidth: 0,
+      _tier: 'similarity-chain',
+    });
+  }
+
+  // Compute "last active" and "this week" from projectDates
+  const allDates = projectDates.map(d => d.date).filter(d => d > 0);
+  const mostRecent = allDates.length ? Math.max(...allDates) : 0;
+  const now = Date.now();
+  const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const activeThisWeek = allDates.filter(d => d >= oneWeekAgo).length;
+
+  let lastActiveStr = '-';
+  if (mostRecent > 0) {
+    const diff = Math.max(0, now - mostRecent);
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) lastActiveStr = 'Just now';
+    else if (mins < 60) lastActiveStr = mins + 'm ago';
+    else if (mins < 1440) lastActiveStr = Math.floor(mins / 60) + 'h ago';
+    else lastActiveStr = Math.floor(mins / 1440) + 'd ago';
+  }
+
+  setStats([
+    ['stat-1', projects.length, 'Projects'],
+    ['stat-2', totalBranches, 'Branches'],
+    ['stat-3', totalKnowledge, 'Knowledge'],
+    ['stat-4', totalConnections, 'Connections'],
+    ['stat-5', lastActiveStr, 'Last Active'],
+    ['stat-6', activeThisWeek, 'Active This Week'],
+  ]);
+  populateSelector(projects, p => `${p.name} (${p.stats ? p.stats.totalBranchEntries : 0})`);
+
+  const legendItems = [
+    [PALETTE.project[0], 'Most recent', 'circle'],
+    [PALETTE.project[11], 'Oldest', 'circle'],
+    ['rgba(255,255,255,0.12)', 'Related project link', 'circle'],
+  ];
+  if (currentDepth !== 'compact') {
+    legendItems.push(['rgba(160,154,150,0.55)', 'Branch note', 'circle']);
+  }
+  if (currentDepth === 'full') {
+    legendItems.push(['rgba(200,114,127,0.5)', 'Tacit knowledge', 'diamond']);
+  }
+  setLegend(legendItems);
+
+  drawNetwork(nodes, edges);
+}
+
+async function renderPipelines(pipelines) {
+  const nodes = [];
+  const edges = [];
+  const seenIds = new Set();
+  let totalStages = 0;
+
+  pipelines.forEach(p => {
+    if (seenIds.has(p.id)) return;
+    seenIds.add(p.id);
+    const color = PALETTE.pipe[pipeKey(p.id)] || PALETTE.pipe.default;
+    totalStages += (p.stages || []).length;
+
+    nodes.push({
+      id: p.id,
+      label: p.name.replace(/ - /g, '\n').substring(0, 40),
+      size: 28 + (p.stages || []).length * 3,
+      color: {
+        background: color,
+        border: 'rgba(255,255,255,0.06)',
+        highlight: { background: color, border: 'rgba(255,255,255,0.25)' },
+        hover: { background: color, border: 'rgba(255,255,255,0.15)' }
+      },
+      font: { color: 'rgba(232,228,225,0.85)', size: 10, multi: 'md', face: FONT },
+      shape: 'dot',
+      shadow: { enabled: true, color: hexToRgba(color, 0.19), size: 12, x: 0, y: 0 },
+      borderWidth: 1,
+      borderWidthSelected: 2,
+      _type: 'pipeline',
+      _data: p,
+    });
+  });
+
+  const connResults = await Promise.all(pipelines.map(p =>
+    gql(`{ pipelineConnections(pipelineId: "${p.id}") {
+      fromPipeline { id } toPipeline { id } direction
+    }}`).catch(() => ({ pipelineConnections: [] }))
+  ));
+  const edgeKeySet = new Set();
+  for (const result of connResults) {
+    for (const conn of (result.pipelineConnections || [])) {
+      const fromId = conn.fromPipeline.id;
+      const toId = conn.toPipeline.id;
+      if (!seenIds.has(fromId) || !seenIds.has(toId)) continue;
+      const key = [fromId, toId].sort().join('::');
+      if (edgeKeySet.has(key)) continue;
+      edgeKeySet.add(key);
+      edges.push({
+        from: fromId, to: toId,
+        color: { color: PALETTE.edge, highlight: PALETTE.edgeHighlight },
+        width: 1.5,
+        arrows: { to: { enabled: conn.direction !== 'BIDIRECTIONAL', scaleFactor: 0.5 } },
+        smooth: { type: 'curvedCW', roundness: 0.15 },
+        label: conn.direction === 'UPSTREAM' ? 'feeds' : conn.direction === 'DOWNSTREAM' ? 'consumes' : '',
+        font: { color: 'rgba(160,154,150,0.5)', size: 8, strokeWidth: 0, face: FONT },
+      });
+    }
+  }
+
+  setStats([
+    ['stat-1', pipelines.length, 'Pipelines'],
+    ['stat-2', totalStages, 'Stages'],
+    ['stat-3', edges.length, 'Connections'],
+    ['stat-4', '', ''],
+    ['stat-5', '', ''],
+    ['stat-6', '', ''],
+  ]);
+  populateSelector(pipelines, p => `${p.name} (${(p.stages||[]).length} stages)`);
+  setLegend([
+    [PALETTE.pipe.ice, 'ICE Pipeline'],
+    [PALETTE.pipe.device, 'Device Graph'],
+    [PALETTE.pipe.consolidated, 'Consolidated Data'],
+    [PALETTE.pipe.clip, 'CLIP'],
+    [PALETTE.pipe.default, 'Other'],
+    ['rgba(255,255,255,0.12)', 'Data dependency'],
+  ]);
+
+  drawNetwork(nodes, edges);
+}
+
+function pipeKey(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('inferred_customer') || n.includes('ice')) return 'ice';
+  if (n.includes('device')) return 'device';
+  if (n.includes('consolidated') || n.includes('unified_tx_matching_c')) return 'consolidated';
+  if (n.includes('clip')) return 'clip';
+  return 'default';
+}
+
+function drawNetwork(nodes, edges) {
+  const container = document.getElementById('network');
+  if (!container) return;
+
+  const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+
+  // barnesHut respects per-edge `length` — key for tiered spring tension
+  const options = {
+    physics: {
+      enabled: true,
+      solver: 'barnesHut',
+      barnesHut: {
+        gravitationalConstant: -2500,
+        centralGravity: 0.6,
+        springLength: 220,
+        springConstant: 0.05,
+        damping: 0.45,
+        avoidOverlap: 0.4,
+      },
+      stabilization: {
+        enabled: true,
+        iterations: 350,
+        updateInterval: 25,
+        fit: true,
+      },
+      maxVelocity: 25,
+      minVelocity: 1.0,
+    },
+    interaction: {
+      hover: true,
+      tooltipDelay: 150,
+      zoomView: true,
+      dragView: true,
+      zoomSpeed: 0.5,
+      navigationButtons: false,
+      dragNodes: true,
+    },
+    nodes: {
+      borderWidth: 1,
+      borderWidthSelected: 2,
+      shadow: { enabled: true, color: 'rgba(0,0,0,0.15)', size: 8, x: 0, y: 2 },
+      chosen: {
+        node: function(values) {
+          values.shadowSize = 18;
+          values.size = values.size * 1.06;
+        }
+      }
+    },
+    edges: {
+      color: { color: PALETTE.edge, highlight: PALETTE.edgeHighlight },
+      width: 1,
+      arrows: { to: { enabled: false } },
+      smooth: { type: 'curvedCW', roundness: 0.12 }
+    }
+  };
+
+  // Cancel previous animations before creating new network
+  activeFireIntervals.forEach(id => clearInterval(id));
+  activeFireIntervals = [];
+  cascadeTimeouts.forEach(t => clearTimeout(t));
+  cascadeTimeouts = [];
+
+  network = new vis.Network(container, data, options);
+
+  // --- BFS wavefront pulse system ---
+  const pulses = [];
+  let pulseTimer = null;
+  let pulseAnimFrame = null;
+  const waveVisited = new Set();
+  const MAX_WAVE_DEPTH = 4;
+  const MAX_ACTIVE_PULSES = 120;
+  const fadeQueue = [];
+  let fadeTimer = null;
+
+  // Pre-built lookup maps (avoid linear scans in hot loops)
+  const nodeTypeMap = new Map();
+  const projectIndexMap = new Map();
+  nodes.forEach(n => {
+    nodeTypeMap.set(n.id, n._type);
+    if (n._type === 'project') {
+      projectIndexMap.set(n.id, projectData.findIndex(p => p.name === n.id));
+    }
+  });
+
+  const projectNodeIds = nodes.filter(n => n._type === 'project').map(n => n.id);
+
+  // Pre-compute original shadow/color for fast restoration
+  const origShadowCache = new Map();
+  const origColorCache = new Map();
+  const origNodeColorCache = new Map();
+  nodes.forEach(n => {
+    if (n._type === 'project') {
+      const c = n.color.background;
+      origShadowCache.set(n.id, { enabled: true, color: hexToRgba(c.startsWith('#') ? c : '#b45a68', 0.19), size: 14, x: 0, y: 0 });
+      origNodeColorCache.set(n.id, JSON.parse(JSON.stringify(n.color)));
+    } else if (n._type === 'branch') {
+      origColorCache.set(n.id, { background: PALETTE.branch, border: PALETTE.branchBorder,
+        highlight: { background: PALETTE.branch, border: 'rgba(255,255,255,0.2)' },
+        hover: { background: PALETTE.branch, border: 'rgba(255,255,255,0.15)' } });
+    } else if (n._type === 'knowledge') {
+      origColorCache.set(n.id, { background: PALETTE.knowledge, border: PALETTE.knowledgeBorder,
+        highlight: { background: PALETTE.knowledge, border: 'rgba(255,255,255,0.2)' },
+        hover: { background: PALETTE.knowledge, border: 'rgba(255,255,255,0.15)' } });
+    }
+  });
+
+  // Adjacency map for traversable edges
+  const adjMap = new Map();
+  data.edges.get().forEach(e => {
+    if (!e._tier || e._tier === 'similarity-chain') return;
+    if (!adjMap.has(e.from)) adjMap.set(e.from, []);
+    if (!adjMap.has(e.to)) adjMap.set(e.to, []);
+    adjMap.get(e.from).push({ target: e.to, tier: e._tier });
+    adjMap.get(e.to).push({ target: e.from, tier: e._tier });
+  });
+
+  function spawnWave() {
+    waveVisited.clear();
+    if (!projectNodeIds.length) return;
+    const originId = projectNodeIds[Math.floor(Math.random() * projectNodeIds.length)];
+    waveVisited.add(originId);
+
+    data.nodes.update({ id: originId,
+      shadow: { enabled: true, color: 'rgba(210,145,155,0.55)', size: 24, x: 0, y: 0 }
+    });
+    setTimeout(() => {
+      const orig = origShadowCache.get(originId);
+      if (orig) data.nodes.update({ id: originId, shadow: orig });
+    }, 800);
+
+    radiateFrom(originId, 0);
+  }
+
+  // Pre-compute edge lengths for speed scaling
+  const edgeLengthMap = new Map();
+  data.edges.get().forEach(e => {
+    if (e.length) {
+      const key1 = e.from + '>' + e.to;
+      const key2 = e.to + '>' + e.from;
+      edgeLengthMap.set(key1, e.length);
+      edgeLengthMap.set(key2, e.length);
+    }
+  });
+
+  function radiateFrom(nodeId, depth) {
+    const neighbors = adjMap.get(nodeId) || [];
+    for (const nb of neighbors) {
+      if (waveVisited.has(nb.target)) continue;
+      waveVisited.add(nb.target);
+
+      const isSatellite = nb.tier === 'branch' || nb.tier === 'knowledge';
+      // Shorter edges = stronger connection = faster pulse
+      const edgeLen = edgeLengthMap.get(nodeId + '>' + nb.target) || 200;
+      const lenFactor = Math.max(0.5, Math.min(2.0, 200 / edgeLen));
+      const jitter = 0.7 + Math.random() * 0.6;
+      const baseSpeed = isSatellite ? 0.012 : 0.006;
+      const speed = baseSpeed * lenFactor * jitter;
+
+      pulses.push({
+        sourceId: nodeId,
+        targetId: nb.target,
+        progress: 0,
+        speed,
+        size: isSatellite ? 0.5 : 1.0,
+        alive: true,
+        depth,
+      });
+    }
+  }
+
+  // Batched fade-back: collects nodes that need to revert, processes in one batch
+  function scheduleFade(nodeId, delay) {
+    fadeQueue.push({ id: nodeId, at: performance.now() + delay });
+    if (!fadeTimer) {
+      fadeTimer = setInterval(processFades, 200);
+    }
+  }
+
+  function processFades() {
+    const now = performance.now();
+    const batch = [];
+    for (let i = fadeQueue.length - 1; i >= 0; i--) {
+      if (now >= fadeQueue[i].at) {
+        const nid = fadeQueue[i].id;
+        const type = nodeTypeMap.get(nid);
+        if (type === 'project') {
+          const orig = origShadowCache.get(nid);
+          if (orig) batch.push({ id: nid, shadow: orig });
+        } else {
+          const orig = origColorCache.get(nid);
+          if (orig) batch.push({ id: nid, color: orig });
+        }
+        fadeQueue.splice(i, 1);
+      }
+    }
+    if (batch.length) data.nodes.update(batch);
+    if (!fadeQueue.length) { clearInterval(fadeTimer); fadeTimer = null; }
+  }
+
+  function animatePulses() {
+    const glowBatch = [];
+
+    for (const p of pulses) {
+      if (!p.alive) continue;
+      p.progress += p.speed;
+
+      if (p.progress >= 1 && !p.arrived) {
+        p.arrived = true;
+        const targetType = nodeTypeMap.get(p.targetId);
+
+        if (targetType === 'project') {
+          glowBatch.push({ id: p.targetId,
+            shadow: { enabled: true, color: 'rgba(210,145,155,0.55)', size: 24, x: 0, y: 0 }
+          });
+          scheduleFade(p.targetId, 600);
+        } else if (targetType === 'branch') {
+          glowBatch.push({ id: p.targetId,
+            color: { background: 'rgba(190,180,175,0.7)', border: 'rgba(255,255,255,0.2)',
+              highlight: { background: 'rgba(190,180,175,0.7)', border: 'rgba(255,255,255,0.2)' },
+              hover: { background: 'rgba(190,180,175,0.7)', border: 'rgba(255,255,255,0.15)' } }
+          });
+          scheduleFade(p.targetId, 500);
+        } else if (targetType === 'knowledge') {
+          glowBatch.push({ id: p.targetId,
+            color: { background: 'rgba(215,140,150,0.65)', border: 'rgba(255,255,255,0.2)',
+              highlight: { background: 'rgba(215,140,150,0.65)', border: 'rgba(255,255,255,0.2)' },
+              hover: { background: 'rgba(215,140,150,0.65)', border: 'rgba(255,255,255,0.15)' } }
+          });
+          scheduleFade(p.targetId, 500);
+        }
+
+        if (p.depth < MAX_WAVE_DEPTH && pulses.length < MAX_ACTIVE_PULSES) {
+          radiateFrom(p.targetId, p.depth + 1);
+        }
+      }
+
+      if (p.progress > 1.4) p.alive = false;
+    }
+
+    if (glowBatch.length) data.nodes.update(glowBatch);
+
+    // Swap-remove dead pulses (O(1) per removal instead of splice O(n))
+    let write = 0;
+    for (let read = 0; read < pulses.length; read++) {
+      if (pulses[read].alive) pulses[write++] = pulses[read];
+    }
+    pulses.length = write;
+
+    if (pulses.length === 0 && !pulseTimer) {
+      pulseTimer = setTimeout(() => {
+        pulseTimer = null;
+        spawnWave();
+      }, 800);
+    }
+
+    if (pulses.length > 0) network.redraw();
+    pulseAnimFrame = requestAnimationFrame(animatePulses);
+  }
+
+  network.on('afterDrawing', (ctx) => {
+    const len = pulses.length;
+    if (!len) return;
+
+    // Batch position lookup
+    const idSet = new Set();
+    for (let i = 0; i < len; i++) {
+      const p = pulses[i];
+      if (p.progress > 1.15) continue;
+      idSet.add(p.sourceId);
+      idSet.add(p.targetId);
+    }
+    const positions = network.getPositions([...idSet]);
+
+    for (let i = 0; i < len; i++) {
+      const p = pulses[i];
+      if (p.progress > 1.15) continue;
+
+      const fromPos = positions[p.sourceId];
+      const toPos = positions[p.targetId];
+      if (!fromPos || !toPos) continue;
+
+      const t = Math.min(p.progress, 1);
+      const x = fromPos.x + (toPos.x - fromPos.x) * t;
+      const y = fromPos.y + (toPos.y - fromPos.y) * t;
+      const s = p.size;
+      const alpha = t < 0.08 ? t / 0.08 : t > 0.88 ? (1 - t) / 0.12 : 1;
+
+      if (s < 0.7) {
+        // Satellite pulses: simple circle, no gradient (cheaper)
+        const a = (0.5 * alpha * s).toFixed(2);
+        ctx.fillStyle = `rgba(220,155,165,${a})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = `rgba(245,210,215,${(0.8 * alpha).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Project pulses: full glow + trail
+        const glowR = 12;
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, glowR);
+        grad.addColorStop(0, `rgba(220,155,165,${(0.5 * alpha).toFixed(2)})`);
+        grad.addColorStop(0.5, `rgba(200,130,140,${(0.18 * alpha).toFixed(2)})`);
+        grad.addColorStop(1, 'rgba(180,90,104,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(x, y, glowR, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = `rgba(245,210,215,${(0.9 * alpha).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        const trailT = Math.max(0, t - 0.15);
+        const tx = fromPos.x + (toPos.x - fromPos.x) * trailT;
+        const ty = fromPos.y + (toPos.y - fromPos.y) * trailT;
+        const trailGrad = ctx.createLinearGradient(tx, ty, x, y);
+        trailGrad.addColorStop(0, 'rgba(210,145,155,0)');
+        trailGrad.addColorStop(1, `rgba(210,145,155,${(0.28 * alpha).toFixed(2)})`);
+        ctx.strokeStyle = trailGrad;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+    }
+  });
+
+  function startFiring() {
+    if (pulseAnimFrame) return;
+    spawnWave();
+    pulseAnimFrame = requestAnimationFrame(animatePulses);
+  }
+
+  // --- Click cascade / neural pulse ---
+  let selectedNodeId = null;
+  let cascadeVisited = new Set();
+
+  function clearSelection() {
+    cascadeTimeouts.forEach(t => clearTimeout(t));
+    cascadeTimeouts = [];
+
+    // Restore all previously affected nodes
+    const batch = [];
+    for (const nid of cascadeVisited) {
+      const type = nodeTypeMap.get(nid);
+      if (type === 'project') {
+        const origC = origNodeColorCache.get(nid);
+        batch.push({ id: nid,
+          color: origC || { background: '#b45a68', border: 'rgba(255,255,255,0.06)' },
+          shadow: origShadowCache.get(nid) || { enabled: false }
+        });
+      } else {
+        const orig = origColorCache.get(nid);
+        if (orig) batch.push({ id: nid, color: orig });
+      }
+
+      const edgeIds = network.getConnectedEdges(nid);
+      for (const eid of edgeIds) {
+        const e = data.edges.get(eid);
+        if (!e || e._tier === 'similarity-chain') continue;
+        const w = e._tier === 'project' ? 1.2 : e._tier === 'branch' ? 0.5 : 0.3;
+        data.edges.update({ id: eid, color: { color: e._tier === 'project' ? PALETTE.edge : PALETTE.gravityEdge, highlight: PALETTE.edgeHighlight, hover: PALETTE.edgeHover }, width: w });
+      }
+    }
+    if (batch.length) data.nodes.update(batch);
+    cascadeVisited.clear();
+    selectedNodeId = null;
+  }
+
+  function triggerCascade(sourceId) {
+    clearSelection();
+    selectedNodeId = sourceId;
+    cascadeVisited.add(sourceId);
+
+    // BFS — if starting from a satellite, only go: satellite → project → projects
+    // If starting from a project, go: project → satellites + projects → their satellites
+    const sourceType = nodeTypeMap.get(sourceId);
+    const maxDepth = sourceType === 'project' ? 4 : 2;
+
+    const waves = [[sourceId]];
+    for (let depth = 0; depth < maxDepth; depth++) {
+      const current = waves[depth];
+      if (!current || !current.length) break;
+      const next = [];
+      for (const nid of current) {
+        const nType = nodeTypeMap.get(nid);
+        const neighbors = adjMap.get(nid) || [];
+        for (const nb of neighbors) {
+          if (cascadeVisited.has(nb.target)) continue;
+          const targetType = nodeTypeMap.get(nb.target);
+
+          // From satellite: only go to project nodes (travel upward)
+          if (sourceType !== 'project' && nType !== 'project' && targetType !== 'project') continue;
+          // From project reached via satellite click: only go to other projects
+          if (sourceType !== 'project' && nType === 'project' && targetType !== 'project') continue;
+
+          cascadeVisited.add(nb.target);
+          next.push(nb.target);
+        }
+      }
+      if (next.length) waves.push(next);
+    }
+
+    // Source node: permanent bright glow while selected
+    if (sourceType === 'project') {
+      data.nodes.update({ id: sourceId, color: {
+        background: '#e8a0aa', border: 'rgba(255,255,255,0.4)',
+        highlight: { background: '#e8a0aa', border: 'rgba(255,255,255,0.4)' },
+        hover: { background: '#e8a0aa', border: 'rgba(255,255,255,0.3)' }
+      }, shadow: { enabled: true, color: 'rgba(180,90,104,0.6)', size: 25, x: 0, y: 0 } });
+    } else {
+      const glowColor = sourceType === 'branch' ? 'rgba(210,200,195,0.85)' : 'rgba(225,150,160,0.8)';
+      data.nodes.update({ id: sourceId, color: {
+        background: glowColor, border: 'rgba(255,255,255,0.35)',
+        highlight: { background: glowColor, border: 'rgba(255,255,255,0.35)' },
+        hover: { background: glowColor, border: 'rgba(255,255,255,0.3)' }
+      } });
+    }
+
+    // Light up source edges
+    const sourceEdges = network.getConnectedEdges(sourceId);
+    for (const eid of sourceEdges) {
+      const e = data.edges.get(eid);
+      if (!e || e._tier === 'similarity-chain') continue;
+      data.edges.update({ id: eid, color: { color: 'rgba(232,160,170,0.4)' }, width: e._tier === 'project' ? 2.5 : 1.5 });
+    }
+
+    // Cascade outward in waves
+    for (let w = 1; w < waves.length; w++) {
+      const wave = waves[w];
+      const delay = w * 600;
+
+      cascadeTimeouts.push(setTimeout(() => {
+        const batch = [];
+        for (const nid of wave) {
+          if (nid === selectedNodeId) continue;
+          const type = nodeTypeMap.get(nid);
+
+          if (type === 'project') {
+            batch.push({ id: nid, color: {
+              background: 'rgba(232,160,170,0.7)', border: 'rgba(255,255,255,0.3)',
+              highlight: { background: 'rgba(232,160,170,0.7)', border: 'rgba(255,255,255,0.3)' },
+              hover: { background: 'rgba(232,160,170,0.7)', border: 'rgba(255,255,255,0.25)' }
+            }, shadow: { enabled: true, color: 'rgba(180,90,104,0.45)', size: 20, x: 0, y: 0 } });
+          } else if (type === 'branch') {
+            batch.push({ id: nid, color: {
+              background: 'rgba(190,180,175,0.7)', border: 'rgba(255,255,255,0.2)',
+              highlight: { background: 'rgba(190,180,175,0.7)', border: 'rgba(255,255,255,0.2)' },
+              hover: { background: 'rgba(190,180,175,0.7)', border: 'rgba(255,255,255,0.15)' } }
+            });
+          } else if (type === 'knowledge') {
+            batch.push({ id: nid, color: {
+              background: 'rgba(215,140,150,0.65)', border: 'rgba(255,255,255,0.2)',
+              highlight: { background: 'rgba(215,140,150,0.65)', border: 'rgba(255,255,255,0.2)' },
+              hover: { background: 'rgba(215,140,150,0.65)', border: 'rgba(255,255,255,0.15)' } }
+            });
+          }
+
+          const edgeIds = network.getConnectedEdges(nid);
+          for (const eid of edgeIds) {
+            const e = data.edges.get(eid);
+            if (!e || e._tier === 'similarity-chain') continue;
+            data.edges.update({ id: eid, color: { color: 'rgba(232,160,170,0.25)' }, width: e._tier === 'project' ? 2 : 1 });
+          }
+        }
+        if (batch.length) data.nodes.update(batch);
+      }, delay));
+    }
+
+    // Fade NON-selected nodes back, keep selected glowing
+    const totalDuration = waves.length * 600 + 1200;
+    cascadeTimeouts.push(setTimeout(() => {
+      const batch = [];
+      for (const nid of cascadeVisited) {
+        if (nid === selectedNodeId) continue;
+        const type = nodeTypeMap.get(nid);
+        if (type === 'project') {
+          const origC = origNodeColorCache.get(nid);
+          batch.push({ id: nid,
+            color: origC || { background: '#b45a68', border: 'rgba(255,255,255,0.06)' },
+            shadow: origShadowCache.get(nid) || { enabled: false }
+          });
+        } else {
+          const orig = origColorCache.get(nid);
+          if (orig) batch.push({ id: nid, color: orig });
+        }
+
+        const edgeIds = network.getConnectedEdges(nid);
+        for (const eid of edgeIds) {
+          const e = data.edges.get(eid);
+          if (!e || e._tier === 'similarity-chain') continue;
+          const w = e._tier === 'project' ? 1.2 : e._tier === 'branch' ? 0.5 : 0.3;
+          data.edges.update({ id: eid, color: { color: e._tier === 'project' ? PALETTE.edge : PALETTE.gravityEdge }, width: w });
+        }
+      }
+      if (batch.length) data.nodes.update(batch);
+    }, totalDuration));
+  }
+
+  // Freeze after stabilization, then start neural firing
+  network.on('stabilized', () => {
+    network.setOptions({ physics: { enabled: false } });
+    startFiring();
+  });
+
+  network.on('dragStart', (params) => {
+    if (params.nodes.length > 0) {
+      network.setOptions({ physics: { enabled: true, stabilization: { enabled: false } } });
+    }
+  });
+  network.on('dragEnd', (params) => {
+    if (params.nodes.length > 0) {
+      setTimeout(() => {
+        network.setOptions({ physics: { enabled: false } });
+      }, 800);
+    }
+  });
+
+  network.on('click', params => {
+    if (params.nodes.length > 0) {
+      const nodeId = params.nodes[0];
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      // Trigger cascade from any clickable node
+      if (node._type === 'project') {
+        triggerCascade(nodeId);
+        showProjectPanel(node._data);
+      } else if (node._type === 'branch') {
+        triggerCascade(nodeId);
+        showBranchPanel(node._data);
+      } else if (node._type === 'knowledge') {
+        triggerCascade(nodeId);
+        showKnowledgePanel(node._data);
+      } else if (node._type === 'pipeline') showPipelinePanel(node._data);
+      else if (node._type === 'stage') showStagePanel(node._data, node._pipeline);
+      else if (node._type === 'searchBranch') showSearchBranchPanel(node._data);
+      return;
+    }
+
+    if (params.edges.length > 0) {
+      const edgeId = params.edges[0];
+      const edge = data.edges.get(edgeId);
+      if (!edge) { closePanel(); return; }
+      const pA = nodes.find(n => n.id === edge.from);
+      const pB = nodes.find(n => n.id === edge.to);
+      if (pA && pB && pA._type === 'project' && pB._type === 'project') {
+        showConnectionPanel(pA._data, pB._data);
+      }
+      return;
+    }
+
+    clearSelection();
+    closePanel();
+  });
+
+  network.on('doubleClick', params => {
+    if (params.nodes.length === 0) return;
+    const nodeId = params.nodes[0];
+    const node = nodes.find(n => n.id === nodeId);
+    if (node && node._type === 'pipeline' && !explodedPipelines.has(nodeId)) {
+      explodePipeline(node._data, data.nodes, data.edges);
+    }
+  });
+}
+
+// --- Panel views ---
+
+function showProjectPanel(p) {
+  const score = p.stats && p.stats.averageCompletenessScore
+    ? p.stats.averageCompletenessScore.toFixed(1) + '%'
+    : 'N/A';
+  const branches = p.branches
+    ? p.branches.map(b => b.name).join(', ')
+    : 'None';
+  const tkCount = (p.tacitKnowledge || []).length;
+
+  // Top-5 most similar projects
+  const similar = similarityData
+    .filter(s => s.projectA === p.name || s.projectB === p.name)
+    .map(s => ({
+      name: s.projectA === p.name ? s.projectB : s.projectA,
+      pct: (s.similarity * 100).toFixed(0),
+    }))
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 5);
+  const similarHtml = similar.length
+    ? similar.map(s => `<span style="color:var(--text-secondary)">${s.name}</span> <span style="color:var(--accent);font-weight:600;font-size:0.78rem">${s.pct}%</span>`).join('<br>')
+    : '<em style="color:var(--text-tertiary)">No embedding data</em>';
+
+  // Tags from tacit knowledge
+  const tagSet = new Set();
+  (p.tacitKnowledge || []).forEach(tk => (tk.tags || []).forEach(t => tagSet.add(t)));
+  const tagsHtml = tagSet.size
+    ? [...tagSet].sort().map(t => `<span style="display:inline-block;padding:2px 8px;margin:2px 3px 2px 0;background:var(--accent-wash);border:1px solid rgba(180,90,104,0.15);border-radius:4px;font-size:0.72rem;color:var(--rose-muted)">${t}</span>`).join('')
+    : '<em style="color:var(--text-tertiary)">No tags</em>';
+
+  openPanel(p.name, [
+    detail('Description', p.description || '<em style="color:var(--text-tertiary)">No description</em>'),
+    detail('Branches', p.stats ? p.stats.totalBranches : 0),
+    detail('Tacit Knowledge', tkCount + ' documents'),
+    detail('Entries', p.stats ? p.stats.totalBranchEntries : 0),
+    detail('Completeness', score),
+    detail('Similar Projects', similarHtml),
+    `<div class="info-detail"><div class="info-detail-label">Tags</div><div class="info-detail-value">${tagsHtml}</div></div>`,
+    detailMono('Branch Names', branches),
+  ].join(''));
+}
+
+function showBranchPanel(b) {
+  openPanel(b.name, [
+    detail('Project', b.projectName || 'N/A'),
+    detail('Branch', b.name),
+  ].join(''));
+}
+
+function showKnowledgePanel(tk) {
+  openPanel(tk.title || 'Tacit Knowledge', [
+    detail('Project', tk.projectName || tk.project || 'N/A'),
+    detail('Date', tk.dateCreated || 'N/A'),
+    detail('Tags', (tk.tags || []).join(', ') || 'None'),
+  ].join(''));
+}
+
+function showSearchBranchPanel(b) {
+  openPanel(b.name, [
+    detail('Entries', (b.entries || []).length),
+    detailMono('Latest', b.entries && b.entries.length ? b.entries[b.entries.length-1].content.substring(0,300) : 'N/A'),
+  ].join(''));
+}
+
+function showPipelinePanel(p) {
+  const stagesHtml = (p.stages || [])
+    .sort((a, b) => a.number - b.number)
+    .map(s => `<div class="info-stage"><span class="num">${String(s.number).padStart(2,'0')}</span>${s.name}</div>`)
+    .join('');
+
+  openPanel(p.name, [
+    detail('Project', p.projectName),
+    detail('Status', `<span style="color:${p.status === 'ACTIVE' ? '#8cb48c' : 'var(--accent)'}">${p.status}</span>`),
+    detail('Stages', (p.stages || []).length),
+    p.description ? detail('Description', p.description) : '',
+    stagesHtml ? `<div class="info-detail"><div class="info-detail-label">Pipeline Stages</div><div class="info-stages">${stagesHtml}</div></div>` : '',
+  ].join(''));
+}
+
+function showConnectionPanel(a, b) {
+  const ignoreBranches = new Set(['main', 'stage', 'master']);
+  const aBranches = new Set((a.branches || []).map(br => br.name).filter(n => !ignoreBranches.has(n)));
+  const bBranches = new Set((b.branches || []).map(br => br.name).filter(n => !ignoreBranches.has(n)));
+  const shared = [...aBranches].filter(n => bBranches.has(n));
+
+  const extractMentions = (text, targetName) => {
+    if (!text) return null;
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    const hits = sentences.filter(s => s.toLowerCase().includes(targetName.toLowerCase()));
+    return hits.length ? hits.join(' ') : null;
+  };
+
+  const aMentionsB = extractMentions(a.description, b.name);
+  const bMentionsA = extractMentions(b.description, a.name);
+
+  const parts = [];
+  if (aMentionsB || bMentionsA) {
+    let ctx = '';
+    if (aMentionsB) ctx += `<strong>${a.name}</strong>: ${aMentionsB}<br><br>`;
+    if (bMentionsA) ctx += `<strong>${b.name}</strong>: ${bMentionsA}`;
+    parts.push(detail('Connection Context', ctx));
+  }
+  parts.push(detail(a.name, a.description || '<em style="color:var(--text-tertiary)">No description</em>'));
+  parts.push(detail(b.name, b.description || '<em style="color:var(--text-tertiary)">No description</em>'));
+  if (shared.length) {
+    parts.push(detailMono('Shared Branches (' + shared.length + ')', shared.join('<br>')));
+  }
+  openPanel(`${a.name} \u2194 ${b.name}`, parts.join(''));
+}
+
+function showStagePanel(stage, pipeline) {
+  const tables = (stage.tables || []).join('<br>');
+  openPanel(`Stage ${String(stage.number).padStart(2,'0')} \u2014 ${stage.name}`, [
+    detail('Pipeline', pipeline.name),
+    detail('Stage', `${String(stage.number).padStart(2,'0')} \u2014 ${stage.name}`),
+    stage.description ? detail('Description', stage.description) : '',
+    tables ? detailMono('Output Tables', tables) : '',
+  ].join(''));
+}
+
+// --- Pipeline Explode ---
+
+function explodePipeline(pipeline, nodesDS, edgesDS) {
+  explodedPipelines.add(pipeline.id);
+  const pos = network.getPositions([pipeline.id])[pipeline.id] || { x: 0, y: 0 };
+  nodesDS.remove(pipeline.id);
+
+  const stages = [...(pipeline.stages || [])].sort((a, b) => a.number - b.number);
+  const total = stages.length;
+  if (total === 0) return;
+
+  const cols = Math.min(4, total);
+  const spacingX = 200;
+  const spacingY = 120;
+  const stageColors = ['#7a3a46', '#8c4654', '#a86b73', '#b45a68', '#c8727f'];
+
+  stages.forEach((stage, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = pos.x + (col - (cols - 1) / 2) * spacingX;
+    const y = pos.y + (row - 0.5) * spacingY;
+    const nodeId = `${pipeline.id}__${stage.number}`;
+    const color = stageColors[Math.min(i, stageColors.length - 1)];
+
+    nodesDS.add({
+      id: nodeId,
+      label: `${String(stage.number).padStart(2, '0')}\n${stage.name.substring(0, 22)}`,
+      x, y,
+      fixed: { x: true, y: true },
+      size: 20,
+      color: {
+        background: color,
+        border: 'rgba(255,255,255,0.06)',
+        highlight: { background: color, border: 'rgba(255,255,255,0.25)' },
+        hover: { background: color, border: 'rgba(255,255,255,0.15)' }
+      },
+      font: { color: 'rgba(232,228,225,0.85)', size: 9, multi: 'md', face: FONT },
+      shape: 'box',
+      borderWidth: 1,
+      borderWidthSelected: 2,
+      shadow: { enabled: true, color: hexToRgba(color, 0.15), size: 8, x: 0, y: 0 },
+      _type: 'stage',
+      _data: stage,
+      _pipeline: pipeline,
+    });
+
+    if (i > 0) {
+      const prevId = `${pipeline.id}__${stages[i - 1].number}`;
+      edgesDS.add({
+        from: prevId, to: nodeId,
+        color: { color: 'rgba(255,255,255,0.08)' },
+        width: 1.5,
+        arrows: { to: { enabled: true, scaleFactor: 0.4 } },
+      });
+    }
+  });
+
+  addCrossPipelineDeps(pipeline, stages, nodesDS, edgesDS);
+
+  setTimeout(() => {
+    stages.forEach((s) => {
+      nodesDS.update({ id: `${pipeline.id}__${s.number}`, fixed: false });
+    });
+  }, 800);
+}
+
+function addCrossPipelineDeps(pipeline, stages, nodesDS, edgesDS) {
+  const pId = pipeline.id.toLowerCase();
+  if (!pId.includes('inferred_customer') && !pId.includes('ice')) return;
+
+  const allNodeIds = nodesDS.getIds();
+  for (const nId of allNodeIds) {
+    const n = nodesDS.get(nId);
+    if (!n) continue;
+    const nLower = nId.toLowerCase();
+
+    if (nLower.includes('device') && stages.some(s => s.number === 2)) {
+      edgesDS.add({
+        from: nId, to: `${pipeline.id}__2`,
+        color: { color: 'rgba(255,255,255,0.08)' },
+        width: 1.2,
+        dashes: [6, 4],
+        arrows: { to: { enabled: true, scaleFactor: 0.4 } },
+        label: 'device edges',
+        font: { color: 'rgba(160,154,150,0.4)', size: 8, strokeWidth: 0, face: FONT },
+      });
+    }
+
+    if ((nLower.includes('consolidated') || nLower.includes('unified_tx_matching_c')) && stages.some(s => s.number === 1)) {
+      edgesDS.add({
+        from: nId, to: `${pipeline.id}__1`,
+        color: { color: 'rgba(255,255,255,0.08)' },
+        width: 1.2,
+        dashes: [6, 4],
+        arrows: { to: { enabled: true, scaleFactor: 0.4 } },
+        label: 'attributes',
+        font: { color: 'rgba(160,154,150,0.4)', size: 8, strokeWidth: 0, face: FONT },
+      });
+    }
+  }
+}
+
+// --- View Switching ---
+
+async function switchView(view) {
+  currentView = view;
+  explodedPipelines.clear();
+  closePanel();
+
+  document.getElementById('btn-projects').classList.toggle('active', view === 'projects');
+  document.getElementById('btn-pipelines').classList.toggle('active', view === 'pipelines');
+
+  const depthToggle = document.getElementById('depth-toggle');
+  depthToggle.style.display = view === 'projects' ? 'flex' : 'none';
+
+  setLoading(true);
+  try {
+    if (view === 'projects') {
+      const projects = await loadProjects();
+      setLoading(false);
+      renderProjects(projects);
+    } else {
+      const pipelines = await loadPipelines();
+      setLoading(false);
+      renderPipelines(pipelines);
+    }
+  } catch (err) {
+    showError(`Could not load ${view}. Is the GraphQL server running at ${GQL}?`);
+    console.error(err);
+  }
+}
+
+// --- Search ---
+
+async function searchKnowledge() {
+  const input = document.getElementById('search-input');
+  const q = (input ? input.value : '').trim();
+  if (!q) return;
+
+  setLoading(true);
+  closePanel();
+
+  try {
+    const data = await gql(`{ searchKnowledge(query: "${q.replace(/"/g, '\\"')}") {
+      knowledge { title project tags dateCreated }
+      branches { name entries { timestamp content } }
+      totalResults
+    }}`);
+
+    setLoading(false);
+    const sr = data.searchKnowledge;
+    const nodes = [];
+    const edges = [];
+
+    nodes.push({
+      id: '__search__', label: `"${q}"`, size: 30,
+      color: { background: '#b45a68', border: 'rgba(255,255,255,0.15)', highlight: { background: '#c8727f', border: '#fff' } },
+      font: { color: '#fff', size: 12, face: FONT },
+      shape: 'star',
+      shadow: { enabled: true, color: 'rgba(180,90,104,0.35)', size: 16, x: 0, y: 0 },
+      _type: 'search',
+    });
+
+    (sr.knowledge || []).forEach((k, i) => {
+      const nid = `tk_${i}`;
+      nodes.push({
+        id: nid, label: (k.title || 'Untitled').substring(0, 30), size: 14,
+        color: { background: PALETTE.knowledge, border: PALETTE.knowledgeBorder, highlight: { background: 'rgba(200,114,127,0.7)', border: 'rgba(255,255,255,0.25)' } },
+        font: { color: 'rgba(232,228,225,0.8)', size: 9, face: FONT },
+        shape: 'diamond',
+        shadow: false,
+        _type: 'knowledge', _data: k,
+      });
+      edges.push({ from: '__search__', to: nid, color: { color: PALETTE.edge } });
+    });
+
+    (sr.branches || []).forEach((b, i) => {
+      const nid = `br_${i}`;
+      nodes.push({
+        id: nid, label: b.name.substring(0, 28), size: 12,
+        color: { background: PALETTE.branch, border: PALETTE.branchBorder, highlight: { background: 'rgba(160,154,150,0.75)', border: 'rgba(255,255,255,0.25)' } },
+        font: { color: 'rgba(160,154,150,0.7)', size: 9, face: FONT },
+        shape: 'dot',
+        shadow: false,
+        _type: 'searchBranch', _data: b,
+      });
+      edges.push({ from: '__search__', to: nid, color: { color: PALETTE.edge } });
+    });
+
+    setStats([
+      ['stat-1', sr.totalResults, 'Results'],
+      ['stat-2', (sr.knowledge || []).length, 'Knowledge'],
+      ['stat-3', (sr.branches || []).length, 'Branches'],
+      ['stat-4', '', ''],
+      ['stat-5', '', ''],
+      ['stat-6', '', ''],
+    ]);
+    setLegend([
+      ['#b45a68','Search query','circle'],
+      ['rgba(200,114,127,0.5)','Tacit Knowledge','diamond'],
+      ['rgba(160,154,150,0.55)','Branch match','circle'],
+    ]);
+    drawNetwork(nodes, edges);
+  } catch (err) {
+    showError(`Search failed: ${err.message}`);
+    console.error(err);
+  }
+}
+
+// --- Init ---
+switchView('projects');
+
+</script>
+</body>
+</html>

@@ -596,6 +596,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['zipPath'],
         },
       },
+      {
+        name: 'graphql_knowledge_query',
+        description: 'Query the GraphQL Knowledge Hub API for structured knowledge discovery, project graph traversal, pipeline exploration, and cross-project relationship analysis. Requires the GraphQL server to be running (node graphql/server.cjs).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'GraphQL query string (e.g., "{ projects { name relatedProjects } }" or "{ projectGraph(name: \\"cursor-cortex\\", maxDepth: 2) { project { name description } depth via } }")',
+            },
+            variables: {
+              type: 'object',
+              description: 'Optional GraphQL variables as JSON object',
+            },
+            endpoint: {
+              type: 'string',
+              description: 'GraphQL endpoint URL (defaults to http://localhost:4000/graphql)',
+            },
+          },
+          required: ['query'],
+        },
+      },
     ],
   };
 });
@@ -6314,6 +6336,48 @@ Run semantic search tools to update embeddings for new content.`,
               text: `Error unpacking context: ${error.message}`,
             },
           ],
+        };
+      }
+    } else if (name === 'graphql_knowledge_query') {
+      const { query, variables = {}, endpoint = 'http://localhost:4000/graphql' } = toolArgs;
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, variables }),
+        });
+
+        const json = await response.json();
+
+        if (json.errors) {
+          return {
+            isError: true,
+            content: [{
+              type: 'text',
+              text: `GraphQL Errors:\n${JSON.stringify(json.errors, null, 2)}`,
+            }],
+          };
+        }
+
+        return {
+          content: [{
+            type: 'text',
+            text: `# GraphQL Knowledge Query Results\n\n## Query\n\`\`\`graphql\n${query}\n\`\`\`\n${variables && Object.keys(variables).length > 0 ? `\n## Variables\n\`\`\`json\n${JSON.stringify(variables, null, 2)}\n\`\`\`\n` : ''}\n## Results\n\`\`\`json\n${JSON.stringify(json.data, null, 2)}\n\`\`\`\n`,
+          }],
+        };
+      } catch (error) {
+        const isConnectionError = error.cause?.code === 'ECONNREFUSED' || error.message.includes('fetch failed');
+        const errorMessage = isConnectionError
+          ? `GraphQL server is not running at ${endpoint}. Start it with: node graphql/server.cjs`
+          : error.message;
+
+        return {
+          isError: true,
+          content: [{
+            type: 'text',
+            text: `GraphQL Query Failed\n\nError: ${errorMessage}\nQuery: ${query}\nEndpoint: ${endpoint}\n\nTroubleshooting:\n1. Start the GraphQL server: node graphql/server.cjs\n2. Check endpoint URL\n3. Validate query syntax`,
+          }],
         };
       }
     }
