@@ -22,6 +22,12 @@ export function notifyCortexDemoBridge(toolName, toolArgs) {
     if (a.projectName != null && a.projectName !== '') body.projectName = String(a.projectName);
     if (a.branchName != null && a.branchName !== '') body.branchName = String(a.branchName);
     else if (a.branch != null && a.branch !== '') body.branchName = String(a.branch);
+    if (a.message != null && String(a.message).trim() !== '') {
+      body.message = String(a.message).trim().replace(/\s+/g, ' ').slice(0, 280);
+    }
+    if (a.title != null && String(a.title).trim() !== '') {
+      body.title = String(a.title).trim().slice(0, 160);
+    }
   }
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 400);
