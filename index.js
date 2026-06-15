@@ -322,7 +322,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             semanticSearch: { type: 'boolean', description: 'Enable vector-based semantic search for concept-based retrieval (default: true)' },
             similarityThreshold: { type: 'number', description: 'Minimum similarity threshold for semantic search results 0.0-1.0 (default: 0.4)' },
             dateRange: { type: 'string', description: 'Optional date range filter (YYYY-MM-DD,YYYY-MM-DD)' },
-            maxResults: { type: 'number', description: 'Maximum number of results to return (default: 50)' }
+            maxResults: { type: 'number', description: 'Maximum number of results to return (default: 30)' },
+            sortBy: { type: 'string', description: 'Order results: "relevance" (default, by similarity/matches) or "recent" (by branch note file modification time, newest first)' }
           },
           required: ['searchTerm']
         }
@@ -356,12 +357,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'list_all_branch_notes',
-        description: 'List all branch notes across all projects, grouped by branch with priority order (main, stage, then alphabetically)',
+        description: 'List all branch notes across all projects, grouped by branch with priority order (main, stage, then alphabetically). Use maxItems to only include the most recently modified note files (reduces noise).',
         inputSchema: {
           type: 'object',
           properties: {
             currentProject: { type: 'string', description: 'Name of the current project (for highlighting)' },
             includeEmpty: { type: 'boolean', description: 'Whether to include branches with no content (default: false)' },
+            maxItems: { type: 'number', description: 'Optional: keep only this many branch note files, newest-by-mtime first (omit = list all)' },
           },
           required: [],
         },
@@ -3397,7 +3399,8 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           semanticSearch = true,
           similarityThreshold = 0.4,
           dateRange,
-          maxResults = 50
+          maxResults = 30,
+          sortBy = 'relevance'
         } = toolArgs;
         
         console.error(`🔍 Searching branch notes for: "${searchTerm}"`);
@@ -3618,6 +3621,25 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           };
         }
         
+        // Optional: newest-first by note file mtime (still capped by maxResults)
+        if (String(sortBy).toLowerCase() === 'recent') {
+          const withMtime = await Promise.all(
+            results.map(async (r) => {
+              try {
+                const st = await fs.stat(r.path);
+                return { ...r, _mtime: st.mtimeMs };
+              } catch {
+                return { ...r, _mtime: 0 };
+              }
+            }),
+          );
+          withMtime.sort((a, b) => b._mtime - a._mtime);
+          for (const r of withMtime) {
+            delete r._mtime;
+          }
+          results.splice(0, results.length, ...withMtime);
+        }
+        
         // Limit results
         const totalResults = results.length;
         const limitedResults = results.slice(0, maxResults);
@@ -3758,7 +3780,9 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       }
     } else if (name === 'list_all_branch_notes') {
       try {
-        const { currentProject, includeEmpty = false } = toolArgs;
+        const { currentProject, includeEmpty = false, maxItems } = toolArgs;
+        const maxItemsN =
+          maxItems != null && Number(maxItems) > 0 ? Math.min(10000, Math.floor(Number(maxItems))) : null;
         const storageRoot = getStorageRoot();
         const branchNotesDir = path.join(storageRoot, 'branch_notes');
         
@@ -3783,8 +3807,8 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         }
         
         // Collect all branch notes organized by branch name
-        const branchGroups = {};
-        const projectBranchCounts = {};
+        let branchGroups = {};
+        let projectBranchCounts = {};
         
         for (const projectName of projectDirs) {
           const projectPath = path.join(branchNotesDir, projectName);
@@ -3836,6 +3860,37 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           }
         }
         
+        const totalFilesBeforeFilter = Object.values(branchGroups).flat().length;
+        if (maxItemsN && totalFilesBeforeFilter > maxItemsN) {
+          const flat = Object.values(branchGroups).flat();
+          const withMtime = await Promise.all(
+            flat.map(async (e) => {
+              try {
+                const st = await fs.stat(e.filePath);
+                return { ...e, mtime: st.mtimeMs };
+              } catch {
+                return { ...e, mtime: 0 };
+              }
+            }),
+          );
+          withMtime.sort((a, b) => b.mtime - a.mtime);
+          const kept = withMtime.slice(0, maxItemsN);
+          branchGroups = {};
+          projectBranchCounts = {};
+          for (const k of kept) {
+            if (!branchGroups[k.branchName]) {
+              branchGroups[k.branchName] = [];
+            }
+            branchGroups[k.branchName].push({
+              projectName: k.projectName,
+              branchName: k.branchName,
+              filePath: k.filePath,
+              isCurrentProject: currentProject === k.projectName,
+            });
+            projectBranchCounts[k.projectName] = (projectBranchCounts[k.projectName] || 0) + 1;
+          }
+        }
+        
         // Sort branches by priority: main, stage, then alphabetically
         const sortedBranchNames = Object.keys(branchGroups).sort((a, b) => {
           if (a === 'main') return -1;
@@ -3853,7 +3908,11 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         const totalProjects = Object.keys(projectBranchCounts).length;
         const totalFiles = Object.values(branchGroups).flat().length;
         
-        response += `**Summary:** ${totalFiles} branch notes across ${totalBranches} branches in ${totalProjects} projects\n\n`;
+        const filterNote =
+          maxItemsN && totalFilesBeforeFilter > maxItemsN
+            ? ` (showing ${totalFiles} most recently modified of ${totalFilesBeforeFilter} — maxItems=${maxItemsN})`
+            : '';
+        response += `**Summary:** ${totalFiles} branch notes across ${totalBranches} branches in ${totalProjects} projects${filterNote}\n\n`;
         
         // Project breakdown
         response += '**Projects:**\n';
