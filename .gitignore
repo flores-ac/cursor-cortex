@@ -1,5 +1,8 @@
 /node_modules
 
+# Personal/machine-specific Cursor MCP config (contains absolute paths)
+.cursor/mcp.json
+
 # macOS system files
 .DS_Store
 .DS_Store?
