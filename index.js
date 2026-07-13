@@ -10,8 +10,40 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import AdmZip from 'adm-zip';
-import { findSimilarDocuments, isModelAvailable, generateEmbedding, storeEmbedding } from './embeddings-cpu.js';
 import { notifyCortexDemoBridge } from './demo-bridge-notify.mjs';
+
+// Lazy-load embeddings so MCP can handshake even if TensorFlow is slow/unavailable.
+let embeddingsModulePromise = null;
+function loadEmbeddingsModule() {
+  if (!embeddingsModulePromise) {
+    embeddingsModulePromise = import('./embeddings-cpu.js').catch((err) => {
+      embeddingsModulePromise = null;
+      console.error('Embeddings module unavailable:', err.message);
+      throw err;
+    });
+  }
+  return embeddingsModulePromise;
+}
+async function generateEmbedding(...args) {
+  const mod = await loadEmbeddingsModule();
+  return mod.generateEmbedding(...args);
+}
+async function storeEmbedding(...args) {
+  const mod = await loadEmbeddingsModule();
+  return mod.storeEmbedding(...args);
+}
+async function findSimilarDocuments(...args) {
+  const mod = await loadEmbeddingsModule();
+  return mod.findSimilarDocuments(...args);
+}
+async function isModelAvailable() {
+  try {
+    const mod = await loadEmbeddingsModule();
+    return mod.isModelAvailable();
+  } catch {
+    return false;
+  }
+}
 
 // Initialize the server
 const server = new Server(
@@ -2940,7 +2972,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           // If semantic search is requested and we have a search term
           if (useSemanticSearch && searchTerm && await isModelAvailable()) {
             try {
-              console.log(`🧠 Using semantic search for: "${searchTerm}" (threshold: ${threshold})`);
+              console.error(`🧠 Using semantic search for: "${searchTerm}" (threshold: ${threshold})`);
               
               // Use vector search for semantic matching
               const vectorResults = await findSimilarDocuments(

@@ -14,6 +14,6 @@ if (typeof util.isNullOrUndefined !== 'function') {
   util.isNullOrUndefined = function(value) {
     return value === null || value === undefined;
   };
-  console.log('✅ Applied polyfill for util.isNullOrUndefined()');
+  console.error('✅ Applied polyfill for util.isNullOrUndefined()');
 }
 
