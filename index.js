@@ -6217,14 +6217,49 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
       try {
         const { zipPath, previewOnly = false, conflictStrategy = 'merge', createBackup = true } = toolArgs;
 
-        // Normalize text so CRLF / trailing whitespace don't create false conflicts.
-        const normalizeUnpackContent = (text) =>
-          String(text || '')
+        // Normalize so CRLF / cosmetic Cloud↔Cursor drift don't create false conflicts.
+        // Branch notes: compare entry bodies only (ignore title project suffix, ---,
+        // Provenance lines, and ## timestamps / COMMIT timestamp tails).
+        const normalizeUnpackContent = (text, entryName = '') => {
+          let s = String(text || '')
             .replace(/\r\n/g, '\n')
             .replace(/\r/g, '\n')
-            .replace(/[ \t]+$/gm, '')
-            .trimEnd();
-        const contentsEqual = (a, b) => normalizeUnpackContent(a) === normalizeUnpackContent(b);
+            .replace(/[ \t]+$/gm, '');
+          if (!entryName.startsWith('branch_notes/')) {
+            return s.trimEnd();
+          }
+          s = s
+            .replace(/^# Branch Note:.*$/m, '')
+            .replace(/^\*{0,2}Provenance:\*{0,2}\s*.*$/gim, '')
+            .replace(/^-{3,}\s*$/gm, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+          const chunks = s.split(/^## /m).filter((c) => c && c.trim());
+          const bodies = [];
+          for (const chunk of chunks) {
+            const nl = chunk.indexOf('\n');
+            const heading = (nl === -1 ? chunk : chunk.slice(0, nl)).trim();
+            let body = (nl === -1 ? '' : chunk.slice(nl + 1))
+              .replace(/^\*{0,2}Provenance:\*{0,2}\s*.*$/gim, '')
+              .replace(/^-{3,}\s*$/gm, '')
+              .trim();
+            const commitHeading = heading.match(/^COMMIT:\s*(.+?)\s*\|\s*/i);
+            if (commitHeading) {
+              const short = commitHeading[1].trim().substring(0, 8);
+              if (!/^COMMIT:/i.test(body)) {
+                body = `COMMIT: ${short}${body ? `\n${body}` : ''}`;
+              } else {
+                body = body.replace(/^COMMIT:\s*(.+)$/m, (_, id) => `COMMIT: ${String(id).trim().substring(0, 8)}`);
+              }
+            } else if (/^COMMIT:\s*/i.test(body)) {
+              body = body.replace(/^COMMIT:\s*(.+)$/m, (_, id) => `COMMIT: ${String(id).trim().substring(0, 8)}`);
+            }
+            if (body) bodies.push(body);
+          }
+          return bodies.join('\n<<ENTRY>>\n');
+        };
+        const contentsEqual = (a, b, entryName = '') =>
+          normalizeUnpackContent(a, entryName) === normalizeUnpackContent(b, entryName);
         
         console.error(`Unpacking context ZIP: ${zipPath} (preview: ${previewOnly})`);
         
@@ -6318,7 +6353,7 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
           const incoming = entry.getData().toString('utf8');
           try {
             const existing = await fs.readFile(targetPath, 'utf8');
-            if (contentsEqual(existing, incoming)) {
+            if (contentsEqual(existing, incoming, entry.entryName)) {
               analysis.identical.push(entry.entryName);
             } else {
               analysis.conflicts.push({
@@ -6397,7 +6432,7 @@ ${Object.entries(metadata.projects || {}).map(([project, data]) =>
           
           if (existingContent !== null) {
             // Always skip byte/text-identical files — no duplicate merges or side copies.
-            if (contentsEqual(existingContent, content)) {
+            if (contentsEqual(existingContent, content, entry.entryName)) {
               identicalSkipped++;
               skippedFiles++;
               continue;
