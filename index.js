@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// MUST be first: keep stdout clean for MCP JSON-RPC (see mcp-stdio-guard.mjs).
+import './mcp-stdio-guard.mjs';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -3019,7 +3022,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                 }
               }
               
-              console.log(`✅ Semantic search found ${results.length} matches`);
+              console.error(`✅ Semantic search found ${results.length} matches`);
               return results;
               
             } catch (error) {
@@ -3029,7 +3032,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           }
           
           // Text-based search (original implementation + fallback)
-          console.log(`📝 Using text search for: "${searchTerm || 'all documents'}"`);
+          console.error(`📝 Using text search for: "${searchTerm || 'all documents'}"`);
           
           // Parse search tags if provided
           const tags = searchTags ? searchTags.split(',').map(tag => tag.trim().toLowerCase()) : [];
@@ -3070,7 +3073,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             }
           }
           
-          console.log(`✅ Text search found ${results.length} matches`);
+          console.error(`✅ Text search found ${results.length} matches`);
           return results;
         }
         
@@ -8448,7 +8451,7 @@ async function main() {
         // Add the separator to the branch note
         await fs.writeFile(filePath, content + separator);
         
-        console.log(`Successfully added commit separator for commit ${commitHash.substring(0, 8)} to branch note.`);
+        console.error(`Successfully added commit separator for commit ${commitHash.substring(0, 8)} to branch note.`);
         process.exit(0);
         
       } else {

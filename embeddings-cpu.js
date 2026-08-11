@@ -25,18 +25,16 @@ let isModelLoading = false;
  * MCP uses stdout for JSON-RPC. Only redirect console.log/warn — never
  * process.stdout.write. Patching stdout races with concurrent tool replies
  * and can send JSON-RPC to stderr, which makes Cursor hang waiting forever.
+ *
+ * Keep the redirect permanently (do not restore). Restoring used to re-enable
+ * dependency console.log on stdout after model load and break the MCP client.
  */
 function withStdoutSafeLogs(fn) {
-  const originalLog = console.log;
-  const originalWarn = console.warn;
   console.log = (...args) => console.error(...args);
+  console.info = (...args) => console.error(...args);
+  console.debug = (...args) => console.error(...args);
   console.warn = (...args) => console.error(...args);
-  return Promise.resolve()
-    .then(fn)
-    .finally(() => {
-      console.log = originalLog;
-      console.warn = originalWarn;
-    });
+  return Promise.resolve().then(fn);
 }
 
 /**
