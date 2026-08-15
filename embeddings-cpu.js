@@ -1,17 +1,12 @@
 /**
- * Vector Embeddings Module for Cursor-Cortex - Native Node Backend
- * 
- * This module provides functionality to generate, store, and query vector 
- * embeddings for knowledge documents, enabling semantic search capabilities.
- * 
- * Uses TensorFlow.js Node backend with native C++ bindings for optimal performance.
+ * Vector Embeddings Module for Cursor-Cortex
+ *
+ * Generate, store, and query vector embeddings for knowledge documents.
+ * Uses pure TensorFlow.js (CPU) — avoids @tensorflow/tfjs-node, whose native
+ * binding can hang indefinitely on some macOS setups and block MCP startup.
  */
 
-// Load polyfill for Node.js v14+ compatibility
-import './tfjs-node-polyfill.js';
-
-// ES6 imports for compatibility with index.js
-import * as tf from '@tensorflow/tfjs-node';
+import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import fs from 'fs/promises';
 import path from 'path';
@@ -25,6 +20,22 @@ const STORAGE_PATHS = {
 
 let modelInstance = null;
 let isModelLoading = false;
+
+/**
+ * MCP uses stdout for JSON-RPC. Only redirect console.log/warn — never
+ * process.stdout.write. Patching stdout races with concurrent tool replies
+ * and can send JSON-RPC to stderr, which makes Cursor hang waiting forever.
+ *
+ * Keep the redirect permanently (do not restore). Restoring used to re-enable
+ * dependency console.log on stdout after model load and break the MCP client.
+ */
+function withStdoutSafeLogs(fn) {
+  console.log = (...args) => console.error(...args);
+  console.info = (...args) => console.error(...args);
+  console.debug = (...args) => console.error(...args);
+  console.warn = (...args) => console.error(...args);
+  return Promise.resolve().then(fn);
+}
 
 /**
  * Initialize TensorFlow.js CPU backend and Universal Sentence Encoder model
@@ -43,13 +54,16 @@ async function initializeModel() {
 
   try {
     isModelLoading = true;
-    
-    // tfjs-node automatically uses optimized native backend
-    console.log('🧠 Loading Universal Sentence Encoder model with native Node backend...');
-    
-    modelInstance = await use.load();
-    console.log('✅ Model loaded successfully');
-    console.log('Backend:', tf.getBackend());
+
+    console.error('🧠 Loading Universal Sentence Encoder (TensorFlow.js CPU)...');
+
+    await withStdoutSafeLogs(async () => {
+      await tf.ready();
+      modelInstance = await use.load();
+    });
+
+    console.error('✅ Model loaded successfully');
+    console.error('Backend:', tf.getBackend());
     
     return modelInstance;
     

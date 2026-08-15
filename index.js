@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// MUST be first: keep stdout clean for MCP JSON-RPC (see mcp-stdio-guard.mjs).
+import './mcp-stdio-guard.mjs';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -10,8 +13,40 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import AdmZip from 'adm-zip';
-import { findSimilarDocuments, isModelAvailable, generateEmbedding, storeEmbedding } from './embeddings-cpu.js';
 import { notifyCortexDemoBridge } from './demo-bridge-notify.mjs';
+
+// Lazy-load embeddings so MCP can handshake even if TensorFlow is slow/unavailable.
+let embeddingsModulePromise = null;
+function loadEmbeddingsModule() {
+  if (!embeddingsModulePromise) {
+    embeddingsModulePromise = import('./embeddings-cpu.js').catch((err) => {
+      embeddingsModulePromise = null;
+      console.error('Embeddings module unavailable:', err.message);
+      throw err;
+    });
+  }
+  return embeddingsModulePromise;
+}
+async function generateEmbedding(...args) {
+  const mod = await loadEmbeddingsModule();
+  return mod.generateEmbedding(...args);
+}
+async function storeEmbedding(...args) {
+  const mod = await loadEmbeddingsModule();
+  return mod.storeEmbedding(...args);
+}
+async function findSimilarDocuments(...args) {
+  const mod = await loadEmbeddingsModule();
+  return mod.findSimilarDocuments(...args);
+}
+async function isModelAvailable() {
+  try {
+    const mod = await loadEmbeddingsModule();
+    return mod.isModelAvailable();
+  } catch {
+    return false;
+  }
+}
 
 // Initialize the server
 const server = new Server(
@@ -587,13 +622,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'unpack_context',
-        description: 'Import shared context package and place content in appropriate Cursor-Cortex storage locations with safe conflict resolution',
+        description:
+          'Import shared context package into Cursor-Cortex storage. Identical files (same content) are always skipped. For real conflicts: merge (default), replace, or skip.',
         inputSchema: {
           type: 'object',
           properties: {
             zipPath: { type: 'string', description: 'Path to the context ZIP file to import' },
             previewOnly: { type: 'boolean', description: 'If true, only show what would be imported without making changes (default: false)' },
-            conflictStrategy: { type: 'string', description: 'How to handle conflicts: merge (default), replace, skip', enum: ['merge', 'replace', 'skip'] },
+            conflictStrategy: {
+              type: 'string',
+              description:
+                'How to handle conflicts when content differs: merge (default), replace, skip. Identical files are always skipped.',
+              enum: ['merge', 'replace', 'skip'],
+            },
             createBackup: { type: 'boolean', description: 'Create backup before import (default: true)' },
           },
           required: ['zipPath'],
@@ -2940,7 +2981,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           // If semantic search is requested and we have a search term
           if (useSemanticSearch && searchTerm && await isModelAvailable()) {
             try {
-              console.log(`🧠 Using semantic search for: "${searchTerm}" (threshold: ${threshold})`);
+              console.error(`🧠 Using semantic search for: "${searchTerm}" (threshold: ${threshold})`);
               
               // Use vector search for semantic matching
               const vectorResults = await findSimilarDocuments(
@@ -2981,7 +3022,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                 }
               }
               
-              console.log(`✅ Semantic search found ${results.length} matches`);
+              console.error(`✅ Semantic search found ${results.length} matches`);
               return results;
               
             } catch (error) {
@@ -2991,7 +3032,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           }
           
           // Text-based search (original implementation + fallback)
-          console.log(`📝 Using text search for: "${searchTerm || 'all documents'}"`);
+          console.error(`📝 Using text search for: "${searchTerm || 'all documents'}"`);
           
           // Parse search tags if provided
           const tags = searchTags ? searchTags.split(',').map(tag => tag.trim().toLowerCase()) : [];
@@ -3032,7 +3073,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             }
           }
           
-          console.log(`✅ Text search found ${results.length} matches`);
+          console.error(`✅ Text search found ${results.length} matches`);
           return results;
         }
         
@@ -6175,6 +6216,50 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
     } else if (name === 'unpack_context') {
       try {
         const { zipPath, previewOnly = false, conflictStrategy = 'merge', createBackup = true } = toolArgs;
+
+        // Normalize so CRLF / cosmetic Cloud↔Cursor drift don't create false conflicts.
+        // Branch notes: compare entry bodies only (ignore title project suffix, ---,
+        // Provenance lines, and ## timestamps / COMMIT timestamp tails).
+        const normalizeUnpackContent = (text, entryName = '') => {
+          let s = String(text || '')
+            .replace(/\r\n/g, '\n')
+            .replace(/\r/g, '\n')
+            .replace(/[ \t]+$/gm, '');
+          if (!entryName.startsWith('branch_notes/')) {
+            return s.trimEnd();
+          }
+          s = s
+            .replace(/^# Branch Note:.*$/m, '')
+            .replace(/^\*{0,2}Provenance:\*{0,2}\s*.*$/gim, '')
+            .replace(/^-{3,}\s*$/gm, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+          const chunks = s.split(/^## /m).filter((c) => c && c.trim());
+          const bodies = [];
+          for (const chunk of chunks) {
+            const nl = chunk.indexOf('\n');
+            const heading = (nl === -1 ? chunk : chunk.slice(0, nl)).trim();
+            let body = (nl === -1 ? '' : chunk.slice(nl + 1))
+              .replace(/^\*{0,2}Provenance:\*{0,2}\s*.*$/gim, '')
+              .replace(/^-{3,}\s*$/gm, '')
+              .trim();
+            const commitHeading = heading.match(/^COMMIT:\s*(.+?)\s*\|\s*/i);
+            if (commitHeading) {
+              const short = commitHeading[1].trim().substring(0, 8);
+              if (!/^COMMIT:/i.test(body)) {
+                body = `COMMIT: ${short}${body ? `\n${body}` : ''}`;
+              } else {
+                body = body.replace(/^COMMIT:\s*(.+)$/m, (_, id) => `COMMIT: ${String(id).trim().substring(0, 8)}`);
+              }
+            } else if (/^COMMIT:\s*/i.test(body)) {
+              body = body.replace(/^COMMIT:\s*(.+)$/m, (_, id) => `COMMIT: ${String(id).trim().substring(0, 8)}`);
+            }
+            if (body) bodies.push(body);
+          }
+          return bodies.join('\n<<ENTRY>>\n');
+        };
+        const contentsEqual = (a, b, entryName = '') =>
+          normalizeUnpackContent(a, entryName) === normalizeUnpackContent(b, entryName);
         
         console.error(`Unpacking context ZIP: ${zipPath} (preview: ${previewOnly})`);
         
@@ -6196,7 +6281,7 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
           };
         }
         
-        const entries = zip.getEntries();
+        const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
         
         // Find and read metadata
         const metadataEntry = entries.find(entry => entry.entryName === 'cortex-metadata.json');
@@ -6250,6 +6335,7 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
           totalFiles: 0,
           projects: {},
           conflicts: [],
+          identical: [],
           newFiles: [],
           dataTypes: new Set()
         };
@@ -6262,14 +6348,19 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
           const dataType = parts[0];
           analysis.dataTypes.add(dataType);
           
-          // Check for conflicts
+          // Check for conflicts vs identical content
           const targetPath = path.join(storageRoot, entry.entryName);
+          const incoming = entry.getData().toString('utf8');
           try {
-            await fs.access(targetPath);
-            analysis.conflicts.push({
-              file: entry.entryName,
-              strategy: conflictStrategy
-            });
+            const existing = await fs.readFile(targetPath, 'utf8');
+            if (contentsEqual(existing, incoming, entry.entryName)) {
+              analysis.identical.push(entry.entryName);
+            } else {
+              analysis.conflicts.push({
+                file: entry.entryName,
+                strategy: conflictStrategy
+              });
+            }
           } catch (error) {
             analysis.newFiles.push(entry.entryName);
           }
@@ -6291,17 +6382,21 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
 📊 **Import Analysis:**
 - **Total Files:** ${analysis.totalFiles}
 - **Data Types:** ${Array.from(analysis.dataTypes).join(', ')}
-- **Projects:** ${Object.keys(metadata.projects).join(', ')}
+- **Projects:** ${Object.keys(metadata.projects || {}).join(', ')}
 - **New Files:** ${analysis.newFiles.length}
-- **Conflicts:** ${analysis.conflicts.length}
+- **Identical (will skip):** ${analysis.identical.length}
+- **Conflicts (content differs):** ${analysis.conflicts.length}
 
+${analysis.identical.length > 0 ? `✅ **Identical (skipped on import):**
+${analysis.identical.slice(0, 20).map((f) => `- ${f}`).join('\n')}${analysis.identical.length > 20 ? `\n- …and ${analysis.identical.length - 20} more` : ''}
+` : ''}
 ${analysis.conflicts.length > 0 ? `⚠️ **Conflicts Found:**
 ${analysis.conflicts.map(c => `- ${c.file} (strategy: ${c.strategy})`).join('\n')}
 ` : ''}
 
 📋 **Projects in Package:**
-${Object.entries(metadata.projects).map(([project, data]) => 
-  `- **${project}**: ${data.included.join(', ')} ${data.branches.length > 0 ? `(branches: ${data.branches.join(', ')})` : ''}`
+${Object.entries(metadata.projects || {}).map(([project, data]) => 
+  `- **${project}**: ${(data.included || []).join(', ')} ${(data.branches || []).length > 0 ? `(branches: ${data.branches.join(', ')})` : ''}`
 ).join('\n')}
 
 💡 **To import:** Run again with \`previewOnly: false\` to proceed with import.`,
@@ -6313,6 +6408,7 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
         // Perform actual import
         let importedFiles = 0;
         let skippedFiles = 0;
+        let identicalSkipped = 0;
         let mergedFiles = 0;
         
         for (const entry of entries) {
@@ -6327,15 +6423,20 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
           const content = entry.getData().toString('utf8');
           
           // Check if file exists
-          let fileExists = false;
+          let existingContent = null;
           try {
-            await fs.access(targetPath);
-            fileExists = true;
+            existingContent = await fs.readFile(targetPath, 'utf8');
           } catch (error) {
             // File doesn't exist
           }
           
-          if (fileExists) {
+          if (existingContent !== null) {
+            // Always skip byte/text-identical files — no duplicate merges or side copies.
+            if (contentsEqual(existingContent, content, entry.entryName)) {
+              identicalSkipped++;
+              skippedFiles++;
+              continue;
+            }
             if (conflictStrategy === 'skip') {
               skippedFiles++;
               continue;
@@ -6343,9 +6444,8 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
               await fs.writeFile(targetPath, content);
               importedFiles++;
             } else if (conflictStrategy === 'merge') {
-              // Merge strategy: for branch notes, append; for others, replace with timestamp
+              // Merge strategy: for branch notes, append; for others, side-copy with timestamp
               if (entry.entryName.includes('branch_notes/')) {
-                const existingContent = await fs.readFile(targetPath, 'utf8');
                 const mergedContent = existingContent + '\n\n---\n**IMPORTED FROM SHARED CONTEXT**\n---\n\n' + content;
                 await fs.writeFile(targetPath, mergedContent);
                 mergedFiles++;
@@ -6373,8 +6473,8 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
 - **Source:** ${zipPath}
 - **Files Imported:** ${importedFiles}
 - **Files Merged:** ${mergedFiles}
-- **Files Skipped:** ${skippedFiles}
-- **Projects:** ${Object.keys(metadata.projects).join(', ')}
+- **Files Skipped:** ${skippedFiles} (${identicalSkipped} identical)
+- **Projects:** ${Object.keys(metadata.projects || {}).join(', ')}
 - **Data Types:** ${Array.from(analysis.dataTypes).join(', ')}
 
 ${backupPath ? `🛡️ **Backup Created:** ${backupPath}
@@ -8386,7 +8486,7 @@ async function main() {
         // Add the separator to the branch note
         await fs.writeFile(filePath, content + separator);
         
-        console.log(`Successfully added commit separator for commit ${commitHash.substring(0, 8)} to branch note.`);
+        console.error(`Successfully added commit separator for commit ${commitHash.substring(0, 8)} to branch note.`);
         process.exit(0);
         
       } else {
