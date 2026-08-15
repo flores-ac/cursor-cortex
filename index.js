@@ -669,8 +669,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // Handle tool execution
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
-    console.error('----------------------------------------');
-    console.error(`CallToolRequestSchema handler called at ${new Date().toISOString()}`);
+    console.log('----------------------------------------');
+    console.log(`CallToolRequestSchema handler called at ${new Date().toISOString()}`);
     
     if (!request.params) {
       console.error('ERROR: request.params is undefined or null');
@@ -687,7 +687,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     // Extract tool name
     const name = request.params.name;
-    console.error('Tool name:', name);
+    console.log('Tool name:', name);
     
     if (!name) {
       console.error('ERROR: Tool name is missing');
@@ -734,8 +734,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     // Get and log the raw arguments
     const rawArgs = request.params.arguments;
-    console.error('Raw arguments type:', typeof rawArgs);
-    console.error('Raw arguments value:', JSON.stringify(rawArgs));
+    console.log('Raw arguments type:', typeof rawArgs);
+    console.log('Raw arguments value:', JSON.stringify(rawArgs));
     
     // Improved approach to handle arguments
     let toolArgs = {};
@@ -743,9 +743,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (typeof rawArgs === 'object' && rawArgs !== null) {
       // Already an object, use directly
       toolArgs = rawArgs;
-      console.error('Using arguments as object directly');
+      console.log('Using arguments as object directly');
     } else if (typeof rawArgs === 'string') {
-      console.error('Arguments received as string:', rawArgs);
+      console.log('Arguments received as string:', rawArgs);
       
       // First, try to parse as JSON if it looks like JSON
       if ((rawArgs.startsWith('{') && rawArgs.endsWith('}')) || 
@@ -753,7 +753,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           (rawArgs.startsWith('"') && rawArgs.endsWith('"'))) {
         try {
           const parsed = JSON.parse(rawArgs);
-          console.error('Successfully parsed string as JSON, result type:', typeof parsed);
+          console.log('Successfully parsed string as JSON, result type:', typeof parsed);
           
           // If we parsed a string from a JSON string, check if it's actually JSON again
           if (typeof parsed === 'string' && 
@@ -761,7 +761,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               parsed.startsWith('[') && parsed.endsWith(']'))) {
             try {
               const doubleUnwrapped = JSON.parse(parsed);
-              console.error('Successfully parsed double-wrapped JSON');
+              console.log('Successfully parsed double-wrapped JSON');
               toolArgs = doubleUnwrapped;
             } catch (error) {
               console.error('Failed to parse double-wrapped JSON:', error.message);
@@ -777,9 +777,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           if (directStringHandlers[name]) {
             const { paramName, defaultParams } = directStringHandlers[name];
             toolArgs = { ...defaultParams, [paramName]: rawArgs };
-            console.error(`Using direct string input for parameter "${paramName}" with value:`, rawArgs);
+            console.log(`Using direct string input for parameter "${paramName}" with value:`, rawArgs);
           } else {
-            console.error(`Tool "${name}" doesn't support direct string input but received string:`, rawArgs);
+            console.log(`Tool "${name}" doesn't support direct string input but received string:`, rawArgs);
             toolArgs = {};
           }
         }
@@ -788,19 +788,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (directStringHandlers[name]) {
           const { paramName, defaultParams } = directStringHandlers[name];
           toolArgs = { ...defaultParams, [paramName]: rawArgs };
-          console.error(`Using direct string input for parameter "${paramName}" with value:`, rawArgs);
+          console.log(`Using direct string input for parameter "${paramName}" with value:`, rawArgs);
         } else {
-          console.error(`Tool "${name}" doesn't support direct string input but received string:`, rawArgs);
+          console.log(`Tool "${name}" doesn't support direct string input but received string:`, rawArgs);
           toolArgs = {};
         }
       }
     } else {
       // Neither object nor string, create an empty object
       toolArgs = {};
-      console.error('Arguments are neither object nor string, using empty object');
+      console.log('Arguments are neither object nor string, using empty object');
     }
     
-    console.error('Final arguments:', JSON.stringify(toolArgs));
+    console.log('Final arguments:', JSON.stringify(toolArgs));
 
     notifyCortexDemoBridge(name, { ...toolArgs });
 
@@ -1562,7 +1562,7 @@ All changes:
         const filePath = getBranchNotePath(projectName, branchName);
         await ensureDirectoryExists(filePath);
         
-        console.error(`Updating branch note at ${filePath}`);
+        console.log(`Updating branch note at ${filePath}`);
         
         let content = '';
         try {
@@ -1601,11 +1601,11 @@ All changes:
           const documentName = branchName.replace(/[^a-zA-Z0-9-_]/g, '_'); // Sanitize filename
           
           await storeEmbedding(projectKey, documentName, embedding);
-          console.error(`✅ Generated embedding for branch note: ${projectKey}/${documentName}`);
+          console.log(`Generated embedding for branch note: ${projectKey}/${documentName}`);
           
         } catch (embeddingError) {
           // Log embedding error but don't fail the main operation
-          console.error(`⚠️ Failed to generate embedding for branch note: ${embeddingError.message}`);
+          console.error(`WARNING: Failed to generate embedding for branch note: ${embeddingError.message}`);
         }
         
         return {
@@ -1716,10 +1716,10 @@ All changes:
           if (error.code !== 'ENOENT') {
             throw error;
           }
-          console.error(`Creating new context file at ${filePath}`);
+          console.log(`Creating new context file at ${filePath}`);
         }
         
-        console.error(`Updating context file at ${filePath}`);
+        console.log(`Updating context file at ${filePath}`);
         
         // Format the context file
         let content = `# ${title}\n\n`;
@@ -1819,7 +1819,7 @@ All changes:
           };
         }
         
-        console.error(`Reading project context for project "${proj}"`);
+        console.log(`Reading project context for project "${proj}"`);
         
         // Check if accessing external project context
         const isExternal = curr && isExternalContextFile(curr, proj);
@@ -1912,7 +1912,7 @@ All changes:
           };
         }
         
-        console.error(`Reading branch context for project "${proj}", branch "${branch}"`);
+        console.log(`Reading branch context for project "${proj}", branch "${branch}"`);
         
         // Check if accessing external project context
         const isExternal = curr && isExternalContextFile(curr, proj);
@@ -2114,7 +2114,7 @@ All changes:
         const { branchName, projectName, jiraTicket } = toolArgs;
         const filePath = getBranchNotePath(projectName, branchName);
         
-        console.error(`Generating commit message from ${filePath}`);
+        console.log(`Generating commit message from ${filePath}`);
         
         // Generate commit message from branch note
         const entriesSinceLastCommit = await getEntriesSinceLastCommit(filePath);
@@ -2160,7 +2160,7 @@ All changes:
         const { ticketId, branchName, projectName, jiraBaseUrl } = toolArgs;
         const filePath = getBranchNotePath(projectName, branchName);
         
-        console.error(`Generating Jira comment for ticket ${ticketId} based on branch note`);
+        console.log(`Generating Jira comment for ticket ${ticketId} based on branch note`);
         
         // Get branch note content
         let branchNoteContent;
@@ -2239,7 +2239,7 @@ All changes:
       try {
         const { forceRegenerate = false, verbose = true } = toolArgs;
         
-        console.error(`🧠 Starting embedding generation${forceRegenerate ? ' (force mode)' : ''}...`);
+        console.log(`Starting embedding generation${forceRegenerate ? ' (force mode)' : ''}...`);
         
         // Import the embedding generation module
         const embeddingsModule = await import('./generate-all-embeddings-cpu.js');
@@ -2289,7 +2289,7 @@ All changes:
         const { branchName, projectName, commitHash, commitMessage } = toolArgs;
         const filePath = getBranchNotePath(projectName, branchName);
         
-        console.error(`Adding commit separator to branch note at ${filePath}`);
+        console.log(`Adding commit separator to branch note at ${filePath}`);
         
         // Check if file exists
         try {
@@ -2340,7 +2340,7 @@ All changes:
       }
     } else if (name === 'create_tacit_knowledge') {
       try {
-        console.error('create_tacit_knowledge called with args:', JSON.stringify(toolArgs, null, 2));
+        console.log('create_tacit_knowledge called with args:', JSON.stringify(toolArgs, null, 2));
         
         const { 
           title, 
@@ -2356,7 +2356,7 @@ All changes:
           relatedDocumentation 
         } = toolArgs;
         
-        console.error(`Creating tacit knowledge document for "${title}"`);
+        console.log(`Creating tacit knowledge document for "${title}"`);
         
         // Format current date
         const currentDate = new Date().toISOString().split('T')[0];
@@ -2442,7 +2442,7 @@ ${relatedDocumentation}` : ''}
       }
     } else if (name === 'create_completion_checklist') {
       try {
-        console.error('create_completion_checklist called with args:', JSON.stringify(toolArgs, null, 2));
+        console.log('create_completion_checklist called with args:', JSON.stringify(toolArgs, null, 2));
         
         const { 
           projectName, 
@@ -2455,7 +2455,7 @@ ${relatedDocumentation}` : ''}
           jiraTicket
         } = toolArgs;
         
-        console.error(`Creating completion checklist for "${featureName}" in project "${projectName}"`);
+        console.log(`Creating completion checklist for "${featureName}" in project "${projectName}"`);
         
         // Format current date
         const currentDate = new Date().toISOString().split('T')[0];
@@ -2538,7 +2538,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       try {
         const { projectName, checklistName = 'list' } = toolArgs;
         
-        console.error(`Reading checklist for project "${projectName}": ${checklistName}`);
+        console.log(`Reading checklist for project "${projectName}": ${checklistName}`);
         
         if (checklistName === 'list') {
           // List all available checklists for the project
@@ -2634,7 +2634,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           branchName = 'main'
         } = toolArgs;
         
-        console.error(`Updating checklist "${checklistName}" for project "${projectName}"`);
+        console.log(`Updating checklist "${checklistName}" for project "${projectName}"`);
         
         // Read the existing checklist
         const checklistPath = await getChecklistPath(projectName, checklistName);
@@ -2827,7 +2827,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           signatureName
         } = toolArgs;
         
-        console.error(`Signing off ${signOffItem} for checklist "${checklistName}" in project "${projectName}"`);
+        console.log(`Signing off ${signOffItem} for checklist "${checklistName}" in project "${projectName}"`);
         
         // Read the existing checklist
         const checklistPath = await getChecklistPath(projectName, checklistName);
@@ -2905,7 +2905,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           similarityThreshold = 0.4 
         } = toolArgs;
         
-        console.error(`Reading tacit knowledge documents for project "${projectName}"`);
+        console.log(`Reading tacit knowledge documents for project "${projectName}"`);
         
         // Get knowledge directory path for a project
         function getKnowledgeDir(projectName) {
@@ -2981,7 +2981,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           // If semantic search is requested and we have a search term
           if (useSemanticSearch && searchTerm && await isModelAvailable()) {
             try {
-              console.error(`🧠 Using semantic search for: "${searchTerm}" (threshold: ${threshold})`);
+              console.log(`Using semantic search for: "${searchTerm}" (threshold: ${threshold})`);
               
               // Use vector search for semantic matching
               const vectorResults = await findSimilarDocuments(
@@ -3022,17 +3022,17 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                 }
               }
               
-              console.error(`✅ Semantic search found ${results.length} matches`);
+              console.log(`Semantic search found ${results.length} matches`);
               return results;
               
             } catch (error) {
-              console.error(`❌ Semantic search failed: ${error.message}, falling back to text search`);
+              console.error(`Semantic search failed: ${error.message}, falling back to text search`);
               // Fall through to text search
             }
           }
           
           // Text-based search (original implementation + fallback)
-          console.error(`📝 Using text search for: "${searchTerm || 'all documents'}"`);
+          console.log(`Using text search for: "${searchTerm || 'all documents'}"`);
           
           // Parse search tags if provided
           const tags = searchTags ? searchTags.split(',').map(tag => tag.trim().toLowerCase()) : [];
@@ -3073,7 +3073,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             }
           }
           
-          console.error(`✅ Text search found ${results.length} matches`);
+          console.log(`Text search found ${results.length} matches`);
           return results;
         }
         
@@ -3229,7 +3229,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       try {
         const { branchName, projectName, commitHash, beforeDate, afterDate, uncommittedOnly = true } = toolArgs;
         
-        console.error(`Filtering branch notes for project "${projectName}", uncommittedOnly: ${uncommittedOnly}`);
+        console.log(`Filtering branch notes for project "${projectName}", uncommittedOnly: ${uncommittedOnly}`);
         
         // Get branch note path
         const branchNotePath = getBranchNotePath(projectName, branchName);
@@ -3254,7 +3254,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         
         // For uncommitted work, we need to process this differently
         if (uncommittedOnly) {
-          console.error('Filtering for uncommitted work');
+          console.log('Filtering for uncommitted work');
           
           // Split by section headers (## format in Markdown)
           const sections = branchNoteContent.split('## ').filter(Boolean);
@@ -3271,7 +3271,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           }
           
           // Log section headers to help debug
-          console.error(`Found ${sections.length} sections`);
+          console.log(`Found ${sections.length} sections`);
           
           // Find the last commit separator by looking for the string "COMMIT:"
           const reversedSections = [...sections].reverse();
@@ -3279,7 +3279,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             section.includes('COMMIT:')
           );
           
-          console.error(`Last commit separator found at index ${lastCommitIndex}`);
+          console.log(`Last commit separator found at index ${lastCommitIndex}`);
           
           if (lastCommitIndex === -1) {
             // No commit separator found, return all entries
@@ -3306,7 +3306,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           // Get only entries after the last commit separator
           const entriesSinceCommit = reversedSections.slice(0, lastCommitIndex).reverse();
           
-          console.error(`Found ${entriesSinceCommit.length} entries since last commit`);
+          console.log(`Found ${entriesSinceCommit.length} entries since last commit`);
           
           if (entriesSinceCommit.length === 0) {
             return {
@@ -3444,7 +3444,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           sortBy = 'relevance'
         } = toolArgs;
         
-        console.error(`🔍 Searching branch notes for: "${searchTerm}"`);
+        console.log(`Searching branch notes for: "${searchTerm}"`);
         
         const results = [];
         const storageRoot = path.join(os.homedir(), '.cursor-cortex');
@@ -3731,7 +3731,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         // Ensure the archives directory exists
         await ensureDirectoryExists(archiveFilePath);
         
-        console.error(`Archiving branch note at ${filePath} to ${archiveFilePath}`);
+        console.log(`Archiving branch note at ${filePath} to ${archiveFilePath}`);
         
         // Read the current content
         let content = await fs.readFile(filePath, 'utf-8');
@@ -3784,7 +3784,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           throw error;
         }
         
-        console.error(`Clearing branch note at ${filePath}`);
+        console.log(`Clearing branch note at ${filePath}`);
         
         // Read the current content
         let content = await fs.readFile(filePath, 'utf-8');
@@ -3793,7 +3793,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         if (createArchive) {
           // Ensure the archives directory exists
           await ensureDirectoryExists(archiveFilePath);
-          console.error(`Archiving to ${archiveFilePath} before clearing`);
+          console.log(`Archiving to ${archiveFilePath} before clearing`);
           await fs.writeFile(archiveFilePath, content);
         }
         
@@ -3827,7 +3827,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         const storageRoot = getStorageRoot();
         const branchNotesDir = path.join(storageRoot, 'branch_notes');
         
-        console.error('Listing all branch notes from', branchNotesDir);
+        console.log('Listing all branch notes from', branchNotesDir);
         
         // Get all project directories
         let projectDirs = [];
@@ -4019,7 +4019,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         const storageRoot = getStorageRoot();
         const branchNotesDir = path.join(storageRoot, 'branch_notes');
         
-        console.error(`Running enhanced branch survey with knowledge archaeology... (semantic: ${semanticAnalysis})`);
+        console.log(`Running enhanced branch survey with knowledge archaeology... (semantic: ${semanticAnalysis})`);
         
         // Import embeddings functions for semantic search
         let semanticSearchEnabled = false;
@@ -4032,7 +4032,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             findSimilarDocuments = embeddingsModule.findSimilarDocuments;
             isModelAvailable = embeddingsModule.isModelAvailable;
             semanticSearchEnabled = await isModelAvailable();
-            console.error(`Semantic search available: ${semanticSearchEnabled}`);
+            console.log(`Semantic search available: ${semanticSearchEnabled}`);
           } catch (error) {
             console.error(`Semantic search disabled: ${error.message}`);
             semanticSearchEnabled = false;
@@ -4124,7 +4124,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           // 🧠 SEMANTIC RELATIONSHIP DETECTION
           if (semanticSearchEnabled && findSimilarDocuments) {
             try {
-              console.error(`🧠 Detecting semantic relationships for ${branchName}...`);
+              console.log(`Detecting semantic relationships for ${branchName}...`);
               
               // Use conceptual query or extract key concepts from content
               const searchQuery = conceptualQuery || extractKeyConceptsFromContent(content);
@@ -4144,7 +4144,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
                   }
                 });
                 
-                console.error(`Found ${similarDocs.length} semantic relationships for ${branchName}`);
+                console.log(`Found ${similarDocs.length} semantic relationships for ${branchName}`);
               }
             } catch (error) {
               console.error(`Semantic relationship detection failed for ${branchName}: ${error.message}`);
@@ -4440,24 +4440,24 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       try {
         const { projectName, branchName = 'main', includeKnowledge = true, includeContext = true, narrativeType = 'full' } = toolArgs;
         
-        console.error(`Constructing project narrative for project "${projectName}"`);
+        console.log(`Constructing project narrative for project "${projectName}"`);
         
         // Get root storage directory for cursor-cortex files
         const storageRoot = getStorageRoot();
         
         // Get branch notes for the project
         const branchNotes = await getBranchNotesForProject(projectName);
-        console.error(`DEBUG: Branch notes length: ${branchNotes.length} chars`);
-        console.error(`DEBUG: Branch notes preview: ${branchNotes.substring(0, 200)}...`);
+        console.log(`DEBUG: Branch notes length: ${branchNotes.length} chars`);
+        console.log(`DEBUG: Branch notes preview: ${branchNotes.substring(0, 200)}...`);
         
         // Get knowledge documents for the project
         const knowledgeDocs = includeKnowledge ? await getKnowledgeDocumentsForProject(projectName) : '';
-        console.error(`DEBUG: Knowledge docs length: ${knowledgeDocs.length} chars`);
-        console.error(`DEBUG: Knowledge docs preview: ${knowledgeDocs.substring(0, 200)}...`);
+        console.log(`DEBUG: Knowledge docs length: ${knowledgeDocs.length} chars`);
+        console.log(`DEBUG: Knowledge docs preview: ${knowledgeDocs.substring(0, 200)}...`);
         
         // Get context information for the project
         const contextInfo = includeContext ? await getContextInfoForProject(projectName) : null;
-        console.error(`DEBUG: Context info:`, contextInfo);
+        console.log(`DEBUG: Context info:`, contextInfo);
         
         // Construct the narrative
         const narrative = constructProjectNarrative(branchNotes, knowledgeDocs, contextInfo);
@@ -4494,7 +4494,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           showFullTimeline = false
         } = toolArgs;
         
-        console.error(`Timeline reconstruction for project: ${projectName || 'ALL'}, branch: ${branchName || 'ALL'}`);
+        console.log(`Timeline reconstruction for project: ${projectName || 'ALL'}, branch: ${branchName || 'ALL'}`);
         
         const timeline = await reconstructTimeline(projectName, branchName, dateRange, includeCommits, includeEntries, showFullTimeline);
         
@@ -4522,7 +4522,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       try {
         const { syncType, projectName, branchName, timelineData } = toolArgs;
         
-        console.error(`Context sync guidance for type: ${syncType}, project: ${projectName}`);
+        console.log(`Context sync guidance for type: ${syncType}, project: ${projectName}`);
         
         const guidance = await generateContextSyncGuidance(syncType, projectName, branchName, timelineData);
         
@@ -4558,7 +4558,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           createChecklist = true
         } = toolArgs;
         
-        console.error(`Analyzing documentation gaps for folder: ${folderPath}, project: ${projectName}`);
+        console.log(`Analyzing documentation gaps for folder: ${folderPath}, project: ${projectName}`);
         
         const analysis = await analyzeDocumentationGaps(
           folderPath, 
@@ -4975,7 +4975,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           migrationStrategy = 'main-to-project' 
         } = toolArgs;
         
-        console.error(`Migrating context files for project: ${projectName}, dryRun: ${dryRun}`);
+        console.log(`Migrating context files for project: ${projectName}, dryRun: ${dryRun}`);
         
         const migration = await migrateContextFiles(
           projectName, 
@@ -5011,7 +5011,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
         // Generate analysis ID if not provided
         const id = analysisId || `${topic.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}`;
         
-        console.error(`Creating critical thinking space: ${id} for project: ${projectName}`);
+        console.log(`Creating critical thinking space: ${id} for project: ${projectName}`);
         
         // Create analysis directory structure
         const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, id);
@@ -5121,7 +5121,7 @@ This analysis requires completion of all six perspectives before final decision:
       try {
         const { analysisId, projectName } = toolArgs;
         
-        console.error(`Checking critical thinking status for: ${analysisId}`);
+        console.log(`Checking critical thinking status for: ${analysisId}`);
         
         const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
         const semaphorePath = path.join(analysisDir, 'semaphore.json');
@@ -5248,7 +5248,7 @@ ${missing.length > 0 ?
       try {
         const { analysisId, projectName, perspective } = toolArgs;
         
-        console.error(`Requesting thinking guidance for ${perspective} hat in analysis: ${analysisId}`);
+        console.log(`Requesting thinking guidance for ${perspective} hat in analysis: ${analysisId}`);
         
         const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
         const semaphorePath = path.join(analysisDir, 'semaphore.json');
@@ -5389,7 +5389,7 @@ Before analyzing, focus on:
       try {
         const { analysisId, projectName, perspective, analysis } = toolArgs;
         
-        console.error(`Adding ${perspective} hat perspective to analysis: ${analysisId}`);
+        console.log(`Adding ${perspective} hat perspective to analysis: ${analysisId}`);
         
         const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
         const semaphorePath = path.join(analysisDir, 'semaphore.json');
@@ -5570,7 +5570,7 @@ Use check_critical_thinking_status to see detailed progress.`;
       try {
         const { analysisId, projectName } = toolArgs;
         
-        console.error(`Requesting synthesis space: ${analysisId} for project: ${projectName}`);
+        console.log(`Requesting synthesis space: ${analysisId} for project: ${projectName}`);
         
         const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
         const semaphorePath = path.join(analysisDir, 'semaphore.json');
@@ -5703,7 +5703,7 @@ ${perspectivesSummary}
       try {
         const { analysisId, projectName, step } = toolArgs;
         
-        console.error(`Requesting synthesis guidance for step: ${step} in analysis: ${analysisId}`);
+        console.log(`Requesting synthesis guidance for step: ${step} in analysis: ${analysisId}`);
         
         const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
         const semaphorePath = path.join(analysisDir, 'semaphore.json');
@@ -5806,7 +5806,7 @@ You must call request_synthesis_space first to load all perspectives into synthe
       try {
         const { analysisId, projectName, step, analysis } = toolArgs;
         
-        console.error(`Completing synthesis step: ${step} for analysis: ${analysisId}`);
+        console.log(`Completing synthesis step: ${step} for analysis: ${analysisId}`);
         
         const analysisDir = path.join(getStorageRoot(), 'critical_thinking', projectName, analysisId);
         const semaphorePath = path.join(analysisDir, 'semaphore.json');
@@ -5988,7 +5988,7 @@ Use check_critical_thinking_status to see detailed progress.`;
       try {
         const { outputPath, projectNames, includeTypes = ['branch-notes', 'context', 'tacit-knowledge', 'checklists'], includeBranches, description = '' } = toolArgs;
         
-        console.error(`Generating context ZIP: ${outputPath}`);
+        console.log(`Generating context ZIP: ${outputPath}`);
         
         const storageRoot = getStorageRoot();
         const zip = new AdmZip();
@@ -6022,7 +6022,7 @@ Use check_critical_thinking_status to see detailed progress.`;
             }
             projectsToInclude = Array.from(projectSet);
           } catch (error) {
-            console.error('No context directory found, checking other directories...');
+            console.log('No context directory found, checking other directories...');
           }
           
           // Also check branch notes directory
@@ -6039,7 +6039,7 @@ Use check_critical_thinking_status to see detailed progress.`;
             }
             projectsToInclude = Array.from(projectSet);
           } catch (error) {
-            console.error('No branch notes directory found');
+            console.log('No branch notes directory found');
           }
         }
         
@@ -6081,7 +6081,7 @@ Use check_critical_thinking_status to see detailed progress.`;
                 metadata.projects[projectName].included.push('branch-notes');
               }
             } catch (error) {
-              console.error(`No branch notes found for project ${projectName}`);
+              console.log(`No branch notes found for project ${projectName}`);
             }
           }
           
@@ -6102,7 +6102,7 @@ Use check_critical_thinking_status to see detailed progress.`;
                 metadata.projects[projectName].included.push('context');
               }
             } catch (error) {
-              console.error(`No context files found for project ${projectName}`);
+              console.log(`No context files found for project ${projectName}`);
             }
           }
           
@@ -6123,7 +6123,7 @@ Use check_critical_thinking_status to see detailed progress.`;
                 metadata.projects[projectName].included.push('tacit-knowledge');
               }
             } catch (error) {
-              console.error(`No tacit knowledge found for project ${projectName}`);
+              console.log(`No tacit knowledge found for project ${projectName}`);
             }
           }
           
@@ -6142,7 +6142,7 @@ Use check_critical_thinking_status to see detailed progress.`;
                 metadata.projects[projectName].included.push('checklists');
               }
             } catch (error) {
-              console.error(`No checklists found for project ${projectName}`);
+              console.log(`No checklists found for project ${projectName}`);
             }
           }
           
@@ -6161,7 +6161,7 @@ Use check_critical_thinking_status to see detailed progress.`;
                 metadata.projects[projectName].included.push('embeddings');
               }
             } catch (error) {
-              console.error(`No embeddings found for project ${projectName}`);
+              console.log(`No embeddings found for project ${projectName}`);
             }
           }
         }
@@ -6261,7 +6261,7 @@ ${Object.entries(metadata.projects).map(([project, data]) =>
         const contentsEqual = (a, b, entryName = '') =>
           normalizeUnpackContent(a, entryName) === normalizeUnpackContent(b, entryName);
         
-        console.error(`Unpacking context ZIP: ${zipPath} (preview: ${previewOnly})`);
+        console.log(`Unpacking context ZIP: ${zipPath} (preview: ${previewOnly})`);
         
         const storageRoot = getStorageRoot();
         
@@ -7026,7 +7026,7 @@ async function getKnowledgeDocumentsForProject(projectName) {
       }
     }
   } catch (error) {
-    console.error(`No knowledge documents found for project ${projectName}: ${error.message}`);
+    console.log(`No knowledge documents found for project ${projectName}: ${error.message}`);
     // Return empty string instead of throwing for knowledge docs (they're optional)
   }
   
@@ -7059,7 +7059,7 @@ async function getContextInfoForProject(projectName) {
         };
       }
     } catch (error) {
-      console.error(`No context files found for project ${projectName}: ${error.message}`);
+      console.log(`No context files found for project ${projectName}: ${error.message}`);
     }
     
     return {
@@ -7420,7 +7420,7 @@ function formatTimelineOutput(events, projects, dateRange, showFullTimeline) {
  */
 async function analyzeDocumentationGaps(folderPath, projectName, includeTests, includeNodeModules, maxDepth, fileExtensions, createChecklist) {
   try {
-    console.error(`Starting documentation gap analysis for: ${folderPath}`);
+    console.log(`Starting documentation gap analysis for: ${folderPath}`);
     
     // Step 1: Scan folder structure
     const fileStructure = await scanFolderStructure(folderPath, maxDepth, includeTests, includeNodeModules, fileExtensions);
@@ -8437,7 +8437,7 @@ async function main() {
       }
     }
     
-    console.error(`CLI mode: calling ${toolName} with args:`, toolArgs);
+    console.log(`CLI mode: calling ${toolName} with args:`, toolArgs);
     
     try {
       // Create storage directories first
@@ -8470,7 +8470,7 @@ async function main() {
           await fs.access(filePath);
         } catch (error) {
           if (error.code === 'ENOENT') {
-            console.error(`No branch note exists yet for branch "${branchName}" in project "${projectName}".`);
+            console.log(`No branch note exists yet for branch "${branchName}" in project "${projectName}".`);
             process.exit(1);
           }
           throw error;
@@ -8486,12 +8486,12 @@ async function main() {
         // Add the separator to the branch note
         await fs.writeFile(filePath, content + separator);
         
-        console.error(`Successfully added commit separator for commit ${commitHash.substring(0, 8)} to branch note.`);
+        console.log(`Successfully added commit separator for commit ${commitHash.substring(0, 8)} to branch note.`);
         process.exit(0);
         
       } else {
-        console.error(`CLI mode: Tool not supported: ${toolName}`);
-        console.error('Supported tools: add_commit_separator');
+        console.log(`CLI mode: Tool not supported: ${toolName}`);
+        console.log('Supported tools: add_commit_separator');
         process.exit(1);
       }
       
@@ -8511,7 +8511,7 @@ async function main() {
     await fs.mkdir(path.join(storageRoot, 'context'), { recursive: true });
     await fs.mkdir(path.join(storageRoot, 'knowledge'), { recursive: true });
     await fs.mkdir(path.join(storageRoot, 'checklists'), { recursive: true });
-    console.error(`Storage directory created at ${storageRoot}`);
+    console.log(`Storage directory created at ${storageRoot}`);
   } catch (error) {
     console.error(`Failed to create storage directory: ${error.message}`);
   }

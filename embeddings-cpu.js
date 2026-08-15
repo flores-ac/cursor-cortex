@@ -6,6 +6,7 @@
  * binding can hang indefinitely on some macOS setups and block MCP startup.
  */
 
+import { Console } from 'node:console';
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import fs from 'fs/promises';
@@ -28,12 +29,18 @@ let isModelLoading = false;
  *
  * Keep the redirect permanently (do not restore). Restoring used to re-enable
  * dependency console.log on stdout after model load and break the MCP client.
+ * Write to a stderr-bound Console so these stay logs, not console.error.
  */
+const stderrConsole = new Console({
+  stdout: process.stderr,
+  stderr: process.stderr,
+});
+
 function withStdoutSafeLogs(fn) {
-  console.log = (...args) => console.error(...args);
-  console.info = (...args) => console.error(...args);
-  console.debug = (...args) => console.error(...args);
-  console.warn = (...args) => console.error(...args);
+  console.log = (...args) => stderrConsole.log(...args);
+  console.info = (...args) => stderrConsole.info(...args);
+  console.debug = (...args) => stderrConsole.debug(...args);
+  console.warn = (...args) => stderrConsole.warn(...args);
   return Promise.resolve().then(fn);
 }
 
@@ -55,20 +62,20 @@ async function initializeModel() {
   try {
     isModelLoading = true;
 
-    console.error('🧠 Loading Universal Sentence Encoder (TensorFlow.js CPU)...');
+    console.log('Loading Universal Sentence Encoder (TensorFlow.js CPU)...');
 
     await withStdoutSafeLogs(async () => {
       await tf.ready();
       modelInstance = await use.load();
     });
 
-    console.error('✅ Model loaded successfully');
-    console.error('Backend:', tf.getBackend());
+    console.log('Model loaded successfully');
+    console.log('Backend:', tf.getBackend());
     
     return modelInstance;
     
   } catch (error) {
-    console.error('❌ Failed to load model:', error.message);
+    console.error('Failed to load model:', error.message);
     throw error;
   } finally {
     isModelLoading = false;
