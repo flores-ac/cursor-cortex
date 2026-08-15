@@ -40,7 +40,7 @@ export async function setupStorageDirectories() {
     await fs.mkdir(path.join(storageRoot, 'embeddings'), { recursive: true });
     await fs.mkdir(path.join(storageRoot, 'critical-thinking'), { recursive: true });
     
-    console.error(`Storage directory created at ${storageRoot}`);
+    console.log(`Storage directory created at ${storageRoot}`);
   } catch (error) {
     console.error(`Failed to create storage directory: ${error.message}`);
     throw error;
