@@ -48,19 +48,26 @@ mcp_cursor-cortex_read_tacit_knowledge(
 To read branch notes for a project:
 
 ```javascript
-mcp_cursor-cortex_read_branch_note(
+mcp_cursor-cortex_read_branch_notes(
   branchName="branch-name",  // e.g., "main"
   projectName="project-name"
 )
 ```
 
-To filter branch notes (e.g., All work committed or not):
+Default is the full file, including COMMIT separators. Use `mode="uncommitted"` (or `uncommittedOnly=true`) for work since the last commit. Date and commitHash filters still work on this same tool:
 
 ```javascript
-mcp_cursor-cortex_filter_branch_note(
+mcp_cursor-cortex_read_branch_notes(
   branchName="branch-name",
   projectName="project-name",
-  uncommittedOnly=false  // Show all branch notes, default is to show only uncommited.
+  mode="uncommitted"
+)
+
+mcp_cursor-cortex_read_branch_notes(
+  branchName="branch-name",
+  projectName="project-name",
+  afterDate="2025-09-01",
+  beforeDate="2025-10-01"
 )
 ```
 

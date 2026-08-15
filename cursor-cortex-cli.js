@@ -247,7 +247,7 @@ async function launchInteractiveCLI() {
     console.log('1. Show uncommitted work only');
     console.log('2. Filter by date range');
     console.log('3. Filter by commit hash');
-    console.log('4. Show all entries');
+    console.log('4. Show raw file (including COMMIT separators)');
     
     const filterChoice = await prompt('\nSelect a filter option (1-4): ');
     
@@ -276,16 +276,17 @@ async function launchInteractiveCLI() {
       }
       break;
     case '4':
-      // No additional arguments needed
+      filterArgs = '--mode=raw';
       break;
     default:
-      console.log('Invalid option selected. Showing all entries.');
+      console.log('Invalid option selected. Showing the full file.');
+      filterArgs = '--mode=raw';
       break;
     }
     
     // Call the MCP tool
     try {
-      const command = `node index.js filter_branch_note --branchName="${currentBranch}" --projectName="${projectName}" ${filterArgs}`;
+      const command = `node index.js read_branch_notes --branchName="${currentBranch}" --projectName="${projectName}" ${filterArgs}`;
       
       exec(command, (error, stdout, stderr) => {
         if (error) {

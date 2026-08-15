@@ -48,7 +48,7 @@
    - ALWAYS update branch notes before committing changes
    - ALWAYS add commit separators after commits
    - VERIFY current branch before operations
-   - USE filter_branch_note for specific queries
+   - USE read_branch_notes for the full file (default), mode=uncommitted for work since the last commit, or beforeDate/afterDate/commitHash to filter
 
 4. **Documentation Requirements**
    - CREATE tacit knowledge for:
@@ -86,7 +86,7 @@
 
 1. **Required Parameters**
    - update_branch_note: branchName, projectName, message
-   - read_branch_note: branchName, projectName
+   - read_branch_notes: branchName, projectName (optional mode=raw|uncommitted, beforeDate, afterDate, commitHash)
    - create_tacit_knowledge: title, author, projectName, problemStatement, approach, outcome
    - update_context_file: branchName, projectName, title, description
 

@@ -16,7 +16,7 @@ Brief description of changes and motivation.
 
 ## 🛠️ MCP Tools Affected
 Which Cursor-Cortex MCP tools are modified or added?
-- [ ] Branch Notes (update_branch_note, read_branch_note, etc.)
+- [ ] Branch Notes (update_branch_note, read_branch_notes, etc.)
 - [ ] Context Files (update_context_file, read_context_file, etc.)
 - [ ] Tacit Knowledge (create_tacit_knowledge, read_tacit_knowledge, etc.)
 - [ ] Checklists (create_completion_checklist, update_checklist, etc.)
