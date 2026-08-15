@@ -101,16 +101,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'read_branch_notes',
-        description: 'Read branch notes - defaults to showing uncommitted work, can also filter by commit hash or date range',
+        description: 'Read branch notes. Default is the full file unchanged, including COMMIT separators. Pass mode=uncommitted or uncommittedOnly=true for work since the last commit. Pass beforeDate, afterDate, or commitHash to filter a date range or commit.',
         inputSchema: {
           type: 'object',
           properties: {
             branchName: { type: 'string', description: 'Name of the branch' },
             projectName: { type: 'string', description: 'Name of the project' },
-            commitHash: { type: 'string', description: 'Filter to show notes for a specific commit (by hash)' },
-            beforeDate: { type: 'string', description: 'Filter to show notes before this date (YYYY-MM-DD)' },
-            afterDate: { type: 'string', description: 'Filter to show notes after this date (YYYY-MM-DD)' },
-            uncommittedOnly: { type: 'boolean', description: 'Show only uncommitted work (notes after the last commit separator) - defaults to true' },
+            mode: { type: 'string', enum: ['raw', 'uncommitted'], description: 'raw (default): entire file unchanged. uncommitted: entries after the last COMMIT separator.' },
+            commitHash: { type: 'string', description: 'Filter to show notes for a specific commit (by hash).' },
+            beforeDate: { type: 'string', description: 'Filter to show notes before this date (YYYY-MM-DD).' },
+            afterDate: { type: 'string', description: 'Filter to show notes after this date (YYYY-MM-DD).' },
+            uncommittedOnly: { type: 'boolean', description: 'Show only uncommitted work (notes after the last commit separator). Defaults to false.' },
           },
           required: ['branchName', 'projectName'],
         }
@@ -1627,63 +1628,6 @@ All changes:
           ],
         };
       }
-    } else if (name === 'read_branch_note') {
-      // DEPRECATED: Use read_branch_notes instead
-      // This wrapper provides backwards compatibility by calling read_branch_notes with uncommittedOnly=false
-      console.error('WARNING: read_branch_note is deprecated. Use read_branch_notes instead.');
-      
-      try {
-        const { branchName, projectName } = toolArgs;
-        
-        // Call the unified read_branch_notes logic with uncommittedOnly=false to show all content
-        const modifiedArgs = { 
-          branchName, 
-          projectName, 
-          uncommittedOnly: false,
-          // No other filters - just show all content
-          commitHash: undefined,
-          beforeDate: undefined,
-          afterDate: undefined
-        };
-        
-        // Simply read the entire file content (like the old read_branch_note did)
-        const filePath = getBranchNotePath(projectName, branchName);
-        
-        try {
-          const content = await fs.readFile(filePath, 'utf-8');
-          return {
-            content: [
-              {
-                type: 'text',
-                text: content,
-              },
-            ],
-          };
-        } catch (error) {
-          if (error.code === 'ENOENT') {
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: `No branch note exists yet for branch "${branchName}" in project "${projectName}". Use update_branch_note to create one.`,
-                },
-              ],
-            };
-          }
-          throw error;
-        }
-        
-      } catch (error) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text',
-              text: `Error reading branch note: ${error.message}`,
-            },
-          ],
-        };
-      }
     } else if (name === 'update_context_file') {
       try {
         const { branchName, projectName, pipelineName, title, description, schedule, dependencies, relatedBranches, additionalInfo, relatedProjects, deploymentInstructions, scope = 'project' } = toolArgs;
@@ -2671,7 +2615,7 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
             // Define patterns to look for in branch notes and context
             const patterns = {
               // Reading tools patterns
-              'reading branch notes': ['read branch note', 'read_branch_note', 'branch notes', 'viewing branch notes'],
+              'reading branch notes': ['read branch notes', 'read_branch_notes', 'branch notes', 'viewing branch notes'],
               'reading context files': ['read context file', 'read_context_file', 'context files', 'viewing context'],
               'reading checklists': ['read checklist', 'read_checklist', 'viewing checklist'],
               
@@ -3227,9 +3171,24 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
       }
     } else if (name === 'read_branch_notes') {
       try {
-        const { branchName, projectName, commitHash, beforeDate, afterDate, uncommittedOnly = true } = toolArgs;
+        const { branchName, projectName, commitHash, beforeDate, afterDate, uncommittedOnly, mode } = toolArgs;
+
+        if (mode !== undefined && mode !== 'uncommitted' && mode !== 'raw') {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Error: Invalid mode "${mode}". Valid modes are: raw, uncommitted`,
+              },
+            ],
+          };
+        }
+
+        const wantsUncommitted = mode === 'uncommitted' || uncommittedOnly === true || uncommittedOnly === 'true';
+        const wantsFilters = Boolean(commitHash || beforeDate || afterDate);
         
-        console.log(`Filtering branch notes for project "${projectName}", uncommittedOnly: ${uncommittedOnly}`);
+        console.log(`Reading branch notes for project "${projectName}", mode: ${mode || 'raw'}, uncommittedOnly: ${Boolean(wantsUncommitted)}, filters: ${wantsFilters}`);
         
         // Get branch note path
         const branchNotePath = getBranchNotePath(projectName, branchName);
@@ -3251,9 +3210,21 @@ ${knowledgeItems.split('\n').map(item => `- [ ] ${item}`).join('\n')}` : `### Kn
           }
           throw error;
         }
+
+        if (!wantsUncommitted && !wantsFilters) {
+          console.log('Returning raw branch note file');
+          return {
+            content: [
+              {
+                type: 'text',
+                text: branchNoteContent,
+              },
+            ],
+          };
+        }
         
         // For uncommitted work, we need to process this differently
-        if (uncommittedOnly) {
+        if (wantsUncommitted) {
           console.log('Filtering for uncommitted work');
           
           // Split by section headers (## format in Markdown)

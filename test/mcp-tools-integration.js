@@ -10,14 +10,14 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// List of all 17 MCP tools to test
+// Advertised-name subset used by these source-presence checks (not the full ListTools set)
 const MCP_TOOLS = [
   'update_branch_note',
   'add_commit_separator', 
-  'filter_branch_note',
-  'read_branch_note',
+  'read_branch_notes',
   'update_context_file',
-  'read_context_file',
+  'read_project_context',
+  'read_branch_context',
   'list_context_files',
   'generate_commit_message',
   'generate_jira_comment',

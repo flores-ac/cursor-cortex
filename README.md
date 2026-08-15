@@ -315,8 +315,7 @@ Analyze and synthesize project knowledge:
 <summary><strong>📝 Branch Management</strong></summary>
 
 - `update_branch_note` - Add entries to your development log
-- `read_branch_note` - View your full branch history  
-- `filter_branch_note` - Show uncommitted work (default) or filter by date/commit
+- `read_branch_notes` - Default is the full file (including COMMIT separators); `mode=uncommitted` or `uncommittedOnly=true` for work since the last commit; optional `beforeDate`, `afterDate`, or `commitHash` to filter
 - `add_commit_separator` - Mark commit boundaries (auto via git hooks)
 - `generate_commit_message` - AI creates commits from your notes
 
